@@ -9,12 +9,13 @@ import {
   Interaction,
 } from 'discord.js';
 import { summarizeShareAnswer } from '../src/share-summary.js';
+import { appendFeedbackToSheet } from '../src/feedback-sheet.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const token = process.env.DISCORD_BOT_TOKEN;
-const feedbackChannelId = process.env.DISCORD_FEEDBACK_CHANNEL_ID;
+const feedbackSheetId = process.env.DISCORD_FEEDBACK_SHEET_ID;
 const rawBaseUrl = process.env.DISCORD_SEARCH_BASE_URL
   || process.env.NEXT_PUBLIC_BASE_URL
   || 'http://localhost:3000';
@@ -162,8 +163,8 @@ const client = new Client({
 client.once('ready', () => {
   console.log(`Discord bot logged in as ${client.user?.tag}`);
   console.log(`DISCORD_SEARCH_BASE_URL: ${baseUrl}`);
-  if (feedbackChannelId) {
-    console.log(`DISCORD_FEEDBACK_CHANNEL_ID: ${feedbackChannelId}`);
+  if (feedbackSheetId) {
+    console.log(`DISCORD_FEEDBACK_SHEET_ID: ${feedbackSheetId}`);
   }
   if (baseUrl.includes('localhost')) {
     console.warn('Warning: Bot is configured to use localhost. Set DISCORD_SEARCH_BASE_URL to your public transcript-app URL.');
@@ -206,22 +207,23 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
       if (action === 'pdc_down') {
         await interaction.reply({ content: 'Thanks — we’ll use this to improve.', ephemeral: true });
-        if (feedbackChannelId) {
-          const channel = await client.channels.fetch(feedbackChannelId);
-          if (channel && channel.isTextBased()) {
-            const summaryLine = cached.summary ? `Summary: ${cached.summary}` : 'Summary: (none)';
-            await channel.send(
-              [
-                '👎 Feedback received',
-                `User: ${interaction.user.tag} (${interaction.user.id})`,
-                `Query: ${cached.query}`,
-                `Share: ${cached.shareUrl}`,
-                summaryLine,
-              ].join('\n')
-            );
-          }
-        } else {
-          console.warn('DISCORD_FEEDBACK_CHANNEL_ID not set; feedback not sent to a channel.');
+        if (!feedbackSheetId) {
+          console.warn('DISCORD_FEEDBACK_SHEET_ID not set; feedback not stored.');
+          return;
+        }
+        try {
+          await appendFeedbackToSheet({
+            timestamp: new Date().toISOString(),
+            userTag: interaction.user.tag,
+            userId: interaction.user.id,
+            query: cached.query,
+            shareUrl: cached.shareUrl,
+            summary: cached.summary,
+            guildId: interaction.guildId,
+            channelId: interaction.channelId,
+          });
+        } catch (error) {
+          console.error('Failed to store feedback in sheet:', error);
         }
       }
     }
