@@ -72,29 +72,6 @@ function trimText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars - 3).trim()}...`;
 }
 
-function pickEpisodeLine(sources: SearchResponse['sources']): string | null {
-  const meta = sources.metadata?.[0];
-  if (meta) {
-    return `S${meta.season}E${meta.episode} — ${meta.film}`;
-  }
-  const transcript = sources.transcripts?.[0];
-  if (transcript) {
-    return transcript.episodeNumber
-      ? `Episode ${transcript.episodeNumber} — ${transcript.episodeTitle}`
-      : transcript.episodeTitle;
-  }
-  return null;
-}
-
-function formatTopClip(sources: SearchResponse['sources']): string | null {
-  const transcript = sources.transcripts?.[0];
-  if (!transcript) {
-    return null;
-  }
-  const snippet = trimText(transcript.text.replace(/\s+/g, ' ').trim(), 240);
-  return `"${snippet}" (${transcript.startTimestamp}–${transcript.endTimestamp})`;
-}
-
 async function postJson<T>(url: string, payload: unknown): Promise<T> {
   const body = Buffer.from(JSON.stringify(payload), 'utf-8');
   const response = await fetch(url, {
@@ -128,36 +105,17 @@ async function buildEmbed(query: string, result: SearchResponse, shareUrl: strin
     maxChars: 300,
   });
 
-  const episodeLine = pickEpisodeLine(result.sources);
-  const topClip = formatTopClip(result.sources);
-
   const embed = new EmbedBuilder()
     .setTitle(query)
     .setDescription(summary || trimText(result.answer, 300))
     .setColor(0x5865f2)
     .setFooter({ text: 'Escape Hatch Podcast Search' });
 
-  if (episodeLine) {
-    embed.addFields({ name: 'Source', value: episodeLine, inline: true });
-  }
-
-  if (topClip) {
-    embed.addFields({ name: 'Top clip', value: topClip, inline: false });
-  }
-
   const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setLabel('Open full answer')
       .setStyle(ButtonStyle.Link)
-      .setURL(shareUrl),
-    new ButtonBuilder()
-      .setCustomId(`pdc_more:${shareId}`)
-      .setLabel('More context')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(`pdc_sources:${shareId}`)
-      .setLabel('Show sources')
-      .setStyle(ButtonStyle.Secondary)
+      .setURL(shareUrl)
   );
 
   return { embed, buttons, summary };
@@ -184,20 +142,6 @@ function getCached(shareId: string): CachedResult | null {
     return null;
   }
   return cached;
-}
-
-function renderSourcesMessage(sources: SearchResponse['sources']): string {
-  const transcriptSources = sources.transcripts?.slice(0, 3) || [];
-  if (transcriptSources.length === 0) {
-    return 'No transcript sources available for this answer.';
-  }
-
-  return transcriptSources
-    .map((source, index) => {
-      const snippet = trimText(source.text.replace(/\s+/g, ' ').trim(), 300);
-      return `${index + 1}. ${source.episodeTitle} (${source.startTimestamp}–${source.endTimestamp})\n${snippet}`;
-    })
-    .join('\n\n');
 }
 
 const client = new Client({
@@ -230,27 +174,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     }
 
     if (interaction.isButton()) {
-      const [action, shareId] = interaction.customId.split(':');
-      const cached = getCached(shareId);
-
-      if (!cached) {
-        await interaction.reply({
-          content: 'This result has expired. Please run the command again.',
-          ephemeral: true,
-        });
-        return;
-      }
-
-      if (action === 'pdc_more') {
-        const moreText = trimText(cached.answer.replace(/\s+/g, ' ').trim(), 900);
-        await interaction.reply({ content: moreText, ephemeral: true });
-        return;
-      }
-
-      if (action === 'pdc_sources') {
-        const sourcesMessage = renderSourcesMessage(cached.sources);
-        await interaction.reply({ content: sourcesMessage, ephemeral: true });
-      }
+      await interaction.reply({
+        content: 'This action is no longer available.',
+        ephemeral: true,
+      });
     }
   } catch (error) {
     console.error('Discord interaction failed:', error);
