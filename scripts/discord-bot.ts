@@ -10,6 +10,7 @@ import {
 } from 'discord.js';
 import { summarizeShareAnswer } from '../src/share-summary.js';
 
+dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const token = process.env.DISCORD_BOT_TOKEN;

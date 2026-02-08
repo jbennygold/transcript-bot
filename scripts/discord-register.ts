@@ -1,6 +1,7 @@
 import * as dotenv from 'dotenv';
 import { REST, Routes, SlashCommandBuilder } from 'discord.js';
 
+dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const token = process.env.DISCORD_BOT_TOKEN;
