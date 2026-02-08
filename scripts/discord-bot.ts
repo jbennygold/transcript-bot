@@ -206,6 +206,10 @@ const client = new Client({
 
 client.once('ready', () => {
   console.log(`Discord bot logged in as ${client.user?.tag}`);
+  console.log(`DISCORD_SEARCH_BASE_URL: ${baseUrl}`);
+  if (baseUrl.includes('localhost')) {
+    console.warn('Warning: Bot is configured to use localhost. Set DISCORD_SEARCH_BASE_URL to your public transcript-app URL.');
+  }
 });
 
 client.on('interactionCreate', async (interaction: Interaction) => {
