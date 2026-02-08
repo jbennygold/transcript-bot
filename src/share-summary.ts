@@ -6,6 +6,14 @@ function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+function stripMetaPhrases(text: string): string {
+  return text
+    .replace(/^here is (a|an|the)\s+[^.]*summary[:\s-]*/i, '')
+    .replace(/^the key takeaway is that\s+/i, '')
+    .replace(/^summary[:\s-]*/i, '')
+    .trim();
+}
+
 export async function summarizeShareAnswer({
   query,
   answer,
@@ -23,9 +31,10 @@ export async function summarizeShareAnswer({
   const prompt = `Summarize the answer below for a Discord link preview.
 
 Requirements:
-- Keep it under ${maxChars} characters.
-- Focus on the key takeaway in 2-4 sentences.
+- Focus on the key takeaway in 1-4 sentences.
+- It's okay to be brief if the answer is clear.
 - Do not repeat the question.
+- Do not mention character limits, summaries, or instructions.
 - Avoid markdown formatting.
 - Plain text only.
 
@@ -45,7 +54,7 @@ ${answer}
     return null;
   }
 
-  const summary = normalizeWhitespace(textBlock.text);
+  const summary = stripMetaPhrases(normalizeWhitespace(textBlock.text));
   if (!summary) {
     return null;
   }
