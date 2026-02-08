@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-const DEFAULT_MAX_CHARS = 300;
+const DEFAULT_MAX_CHARS = 900;
 
 function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, ' ').trim();

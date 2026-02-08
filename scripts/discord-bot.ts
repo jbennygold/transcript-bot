@@ -102,12 +102,12 @@ async function buildEmbed(query: string, result: SearchResponse, shareUrl: strin
   const summary = await summarizeShareAnswer({
     query,
     answer: result.answer,
-    maxChars: 300,
+    maxChars: 900,
   });
 
   const embed = new EmbedBuilder()
     .setTitle(query)
-    .setDescription(summary || trimText(result.answer, 300))
+    .setDescription(summary || trimText(result.answer, 900))
     .setColor(0x5865f2)
     .setFooter({ text: 'Escape Hatch Podcast Search' });
 
