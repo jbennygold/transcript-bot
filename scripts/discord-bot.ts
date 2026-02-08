@@ -14,9 +14,10 @@ dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const token = process.env.DISCORD_BOT_TOKEN;
-const baseUrl = process.env.DISCORD_SEARCH_BASE_URL
+const rawBaseUrl = process.env.DISCORD_SEARCH_BASE_URL
   || process.env.NEXT_PUBLIC_BASE_URL
   || 'http://localhost:3000';
+const baseUrl = rawBaseUrl.replace(/\/+$/, '');
 
 if (!token) {
   console.error('Missing DISCORD_BOT_TOKEN in env.');
@@ -94,11 +95,15 @@ function formatTopClip(sources: SearchResponse['sources']): string | null {
   return `"${snippet}" (${transcript.startTimestamp}–${transcript.endTimestamp})`;
 }
 
-async function fetchSearch(query: string): Promise<SearchResponse> {
-  const response = await fetch(`${baseUrl}/api/search`, {
+async function postJson<T>(url: string, payload: unknown): Promise<T> {
+  const body = Buffer.from(JSON.stringify(payload), 'utf-8');
+  const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': body.length.toString(),
+    },
+    body,
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Search failed' }));
@@ -107,17 +112,12 @@ async function fetchSearch(query: string): Promise<SearchResponse> {
   return response.json();
 }
 
+async function fetchSearch(query: string): Promise<SearchResponse> {
+  return postJson<SearchResponse>(`${baseUrl}/api/search`, { query });
+}
+
 async function createShare(query: string, result: SearchResponse): Promise<{ shareUrl: string; shareId: string }> {
-  const response = await fetch(`${baseUrl}/api/share`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, result }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Share failed' }));
-    throw new Error(error.error || 'Share failed');
-  }
-  const data = await response.json();
+  const data = await postJson<{ url: string; id: string }>(`${baseUrl}/api/share`, { query, result });
   return { shareUrl: `${baseUrl}${data.url}`, shareId: data.id };
 }
 
