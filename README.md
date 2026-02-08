@@ -8,6 +8,7 @@ Standalone Discord bot for Escape Hatch Podcast Search.
 - `DISCORD_GUILD_ID` (optional, for fast per-guild registration)
 - `DISCORD_SEARCH_BASE_URL` (base URL of the transcript app, e.g. https://transcript.yourdomain.com)
 - `ANTHROPIC_API_KEY` (for synopsis generation)
+- `DISCORD_FEEDBACK_CHANNEL_ID` (optional, channel to receive 👎 feedback logs)
 
 ## Setup
 1) Install dependencies

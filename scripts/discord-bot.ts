@@ -14,6 +14,7 @@ dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const token = process.env.DISCORD_BOT_TOKEN;
+const feedbackChannelId = process.env.DISCORD_FEEDBACK_CHANNEL_ID;
 const rawBaseUrl = process.env.DISCORD_SEARCH_BASE_URL
   || process.env.NEXT_PUBLIC_BASE_URL
   || 'http://localhost:3000';
@@ -56,6 +57,7 @@ type SearchResponse = {
 type CachedResult = {
   shareId: string;
   shareUrl: string;
+  query: string;
   answer: string;
   summary: string | null;
   sources: SearchResponse['sources'];
@@ -115,16 +117,25 @@ async function buildEmbed(query: string, result: SearchResponse, shareUrl: strin
     new ButtonBuilder()
       .setLabel('Open full answer')
       .setStyle(ButtonStyle.Link)
-      .setURL(shareUrl)
+      .setURL(shareUrl),
+    new ButtonBuilder()
+      .setCustomId(`pdc_up:${shareId}`)
+      .setLabel('👍')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`pdc_down:${shareId}`)
+      .setLabel('👎')
+      .setStyle(ButtonStyle.Secondary)
   );
 
   return { embed, buttons, summary };
 }
 
-function cacheResult(shareId: string, shareUrl: string, result: SearchResponse, summary: string | null) {
+function cacheResult(shareId: string, shareUrl: string, query: string, result: SearchResponse, summary: string | null) {
   resultCache.set(shareId, {
     shareId,
     shareUrl,
+    query,
     answer: result.answer,
     summary,
     sources: result.sources,
@@ -151,6 +162,9 @@ const client = new Client({
 client.once('ready', () => {
   console.log(`Discord bot logged in as ${client.user?.tag}`);
   console.log(`DISCORD_SEARCH_BASE_URL: ${baseUrl}`);
+  if (feedbackChannelId) {
+    console.log(`DISCORD_FEEDBACK_CHANNEL_ID: ${feedbackChannelId}`);
+  }
   if (baseUrl.includes('localhost')) {
     console.warn('Warning: Bot is configured to use localhost. Set DISCORD_SEARCH_BASE_URL to your public transcript-app URL.');
   }
@@ -167,17 +181,49 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       const { shareUrl, shareId } = await createShare(query, result);
       const { embed, buttons, summary } = await buildEmbed(query, result, shareUrl, shareId);
 
-      cacheResult(shareId, shareUrl, result, summary || null);
+      cacheResult(shareId, shareUrl, query, result, summary || null);
 
       await interaction.editReply({ embeds: [embed], components: [buttons] });
       return;
     }
 
     if (interaction.isButton()) {
-      await interaction.reply({
-        content: 'This action is no longer available.',
-        ephemeral: true,
-      });
+      const [action, shareId] = interaction.customId.split(':');
+      const cached = getCached(shareId);
+
+      if (!cached) {
+        await interaction.reply({
+          content: 'This result has expired. Please run the command again.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      if (action === 'pdc_up') {
+        await interaction.reply({ content: 'Thanks for the feedback!', ephemeral: true });
+        return;
+      }
+
+      if (action === 'pdc_down') {
+        await interaction.reply({ content: 'Thanks — we’ll use this to improve.', ephemeral: true });
+        if (feedbackChannelId) {
+          const channel = await client.channels.fetch(feedbackChannelId);
+          if (channel && channel.isTextBased()) {
+            const summaryLine = cached.summary ? `Summary: ${cached.summary}` : 'Summary: (none)';
+            await channel.send(
+              [
+                '👎 Feedback received',
+                `User: ${interaction.user.tag} (${interaction.user.id})`,
+                `Query: ${cached.query}`,
+                `Share: ${cached.shareUrl}`,
+                summaryLine,
+              ].join('\n')
+            );
+          }
+        } else {
+          console.warn('DISCORD_FEEDBACK_CHANNEL_ID not set; feedback not sent to a channel.');
+        }
+      }
     }
   } catch (error) {
     console.error('Discord interaction failed:', error);
