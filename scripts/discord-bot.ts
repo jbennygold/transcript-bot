@@ -110,7 +110,7 @@ async function buildEmbed(query: string, result: SearchResponse, shareUrl: strin
   });
 
   const embed = new EmbedBuilder()
-    .setTitle(query)
+    .setTitle(trimText(query, 256))
     .setDescription(summary || trimText(result.answer, 900))
     .setColor(0x5865f2)
     .setFooter({ text: 'Escape Hatch Podcast Search' });
