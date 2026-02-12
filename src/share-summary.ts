@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 
 const DEFAULT_MAX_CHARS = 900;
+const MAX_ANSWER_CHARS = 12_000;
 
 function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
@@ -27,6 +28,11 @@ export async function summarizeShareAnswer({
     return null;
   }
 
+  const truncatedAnswer =
+    answer.length > MAX_ANSWER_CHARS
+      ? `${answer.slice(0, MAX_ANSWER_CHARS)}…`
+      : answer;
+
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const prompt = `Summarize the answer below for a Discord link preview.
 
@@ -40,24 +46,30 @@ Requirements:
 
 Question: "${query}"
 Answer:
-${answer}
+${truncatedAnswer}
 `;
 
-  const message = await client.messages.create({
-    model: 'claude-3-haiku-20240307',
-    max_tokens: 256,
-    messages: [{ role: 'user', content: prompt }],
-  });
+  try {
+    const message = await client.messages.create({
+      model: 'claude-3-haiku-20240307',
+      max_tokens: 256,
+      messages: [{ role: 'user', content: prompt }],
+    });
 
-  const textBlock = message.content.find((block) => block.type === 'text');
-  if (!textBlock || textBlock.type !== 'text') {
+    const textBlock = message.content.find((block) => block.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') {
+      return null;
+    }
+
+    const summary = stripMetaPhrases(normalizeWhitespace(textBlock.text));
+    if (!summary) {
+      return null;
+    }
+
+    return summary.length > maxChars ? `${summary.slice(0, maxChars - 3).trim()}...` : summary;
+  } catch (error) {
+    console.error('Summary generation failed, falling back to raw answer:',
+      error instanceof Error ? error.message : error);
     return null;
   }
-
-  const summary = stripMetaPhrases(normalizeWhitespace(textBlock.text));
-  if (!summary) {
-    return null;
-  }
-
-  return summary.length > maxChars ? `${summary.slice(0, maxChars - 3).trim()}...` : summary;
 }

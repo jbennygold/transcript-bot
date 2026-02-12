@@ -7,6 +7,7 @@ import {
   EmbedBuilder,
   GatewayIntentBits,
   Interaction,
+  MessageFlags,
 } from 'discord.js';
 import { summarizeShareAnswer } from '../src/share-summary.js';
 import { appendFeedbackToSheet } from '../src/feedback-sheet.js';
@@ -160,7 +161,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`Discord bot logged in as ${client.user?.tag}`);
   console.log(`DISCORD_SEARCH_BASE_URL: ${baseUrl}`);
   if (feedbackSheetId) {
@@ -195,18 +196,18 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       if (!cached) {
         await interaction.reply({
           content: 'This result has expired. Please run the command again.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
 
       if (action === 'pdc_up') {
-        await interaction.reply({ content: 'Thanks for the feedback!', ephemeral: true });
+        await interaction.reply({ content: 'Thanks for the feedback!', flags: MessageFlags.Ephemeral });
         return;
       }
 
       if (action === 'pdc_down') {
-        await interaction.reply({ content: 'Thanks — we’ll use this to improve.', ephemeral: true });
+        await interaction.reply({ content: "Thanks \u2014 we'll use this to improve.", flags: MessageFlags.Ephemeral });
         if (!feedbackSheetId) {
           console.warn('DISCORD_FEEDBACK_SHEET_ID not set; feedback not stored.');
           return;
@@ -234,7 +235,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       if (interaction.deferred || interaction.replied) {
         await interaction.editReply({ content: message });
       } else {
-        await interaction.reply({ content: message, ephemeral: true });
+        await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
       }
     }
   }
