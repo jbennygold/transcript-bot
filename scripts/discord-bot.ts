@@ -8,9 +8,11 @@ import {
   GatewayIntentBits,
   Interaction,
   MessageFlags,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } from 'discord.js';
 import { summarizeShareAnswer } from '../src/share-summary.js';
-import { generateFollowUpQuery } from '../src/follow-up.js';
 import { appendFeedbackToSheet } from '../src/feedback-sheet.js';
 
 dotenv.config({ path: '.env.local' });
@@ -22,7 +24,6 @@ const rawBaseUrl = process.env.DISCORD_SEARCH_BASE_URL
   || process.env.NEXT_PUBLIC_BASE_URL
   || 'http://localhost:3000';
 const baseUrl = rawBaseUrl.replace(/\/+$/, '');
-const followUpEnabled = Boolean(process.env.ANTHROPIC_API_KEY);
 
 if (!token) {
   console.error('Missing DISCORD_BOT_TOKEN in env.');
@@ -64,7 +65,6 @@ type CachedResult = {
   query: string;
   answer: string;
   summary: string | null;
-  followUp: string | null;
   sources: SearchResponse['sources'];
   createdAt: number;
 };
@@ -130,14 +130,12 @@ async function buildEmbed(query: string, result: SearchResponse, shareUrl: strin
       .setURL(shareUrl)
   );
 
-  if (followUpEnabled) {
-    buttons.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`pdc_follow:${shareId}`)
-        .setLabel('Follow-up')
-        .setStyle(ButtonStyle.Primary)
-    );
-  }
+  buttons.addComponents(
+    new ButtonBuilder()
+      .setCustomId(`pdc_follow:${shareId}`)
+      .setLabel('Follow-up')
+      .setStyle(ButtonStyle.Primary)
+  );
 
   buttons.addComponents(
     new ButtonBuilder()
@@ -158,8 +156,7 @@ function cacheResult(
   shareUrl: string,
   query: string,
   result: SearchResponse,
-  summary: string | null,
-  followUp: string | null
+  summary: string | null
 ) {
   resultCache.set(shareId, {
     shareId,
@@ -167,7 +164,6 @@ function cacheResult(
     query,
     answer: result.answer,
     summary,
-    followUp,
     sources: result.sources,
     createdAt: Date.now(),
   });
@@ -211,7 +207,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       const { shareUrl, shareId } = await createShare(query, result);
       const { embed, buttons, summary } = await buildEmbed(query, result, shareUrl, shareId);
 
-      cacheResult(shareId, shareUrl, query, result, summary || null, null);
+      cacheResult(shareId, shareUrl, query, result, summary || null);
 
       await interaction.editReply({ embeds: [embed], components: [buttons] });
       return;
@@ -219,44 +215,33 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
     if (interaction.isButton()) {
       const [action, shareId] = interaction.customId.split(':');
-      const cached = getCached(shareId);
 
+      if (action === 'pdc_follow') {
+        const modal = new ModalBuilder()
+          .setCustomId(`pdc_follow_modal:${interaction.message?.id ?? shareId}`)
+          .setTitle('Ask a follow-up');
+
+        const input = new TextInputBuilder()
+          .setCustomId('followup_query')
+          .setLabel('Your follow-up question')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('e.g., What did they say about the guest?')
+          .setMaxLength(120)
+          .setRequired(true);
+
+        const row = new ActionRowBuilder<TextInputBuilder>().addComponents(input);
+        modal.addComponents(row);
+
+        await interaction.showModal(modal);
+        return;
+      }
+
+      const cached = getCached(shareId);
       if (!cached) {
         await interaction.reply({
           content: 'This result has expired. Please run the command again.',
           flags: MessageFlags.Ephemeral,
         });
-        return;
-      }
-
-      if (action === 'pdc_follow') {
-        await interaction.deferReply();
-
-        let followUp = cached.followUp;
-        if (!followUp) {
-          try {
-            followUp = await generateFollowUpQuery({
-              query: cached.query,
-              answer: cached.answer,
-            });
-            cached.followUp = followUp || null;
-          } catch (error) {
-            console.warn('Failed to generate follow-up:', error);
-          }
-        }
-
-        if (!followUp) {
-          await interaction.editReply({ content: 'Follow-up suggestion unavailable right now.' });
-          return;
-        }
-
-        const result = await fetchSearch(followUp);
-        const { shareUrl, shareId } = await createShare(followUp, result);
-        const { embed, buttons, summary } = await buildEmbed(followUp, result, shareUrl, shareId);
-
-        cacheResult(shareId, shareUrl, followUp, result, summary || null, null);
-
-        await interaction.editReply({ embeds: [embed], components: [buttons] });
         return;
       }
 
@@ -285,6 +270,44 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         } catch (error) {
           console.error('Failed to store feedback in sheet:', error);
         }
+      }
+    }
+
+    if (interaction.isModalSubmit()) {
+      if (!interaction.customId.startsWith('pdc_follow_modal:')) {
+        return;
+      }
+
+      const query = interaction.fields.getTextInputValue('followup_query').trim();
+      if (!query) {
+        await interaction.reply({ content: 'Please enter a follow-up question.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      const result = await fetchSearch(query);
+      const { shareUrl, shareId } = await createShare(query, result);
+      const { embed, buttons, summary } = await buildEmbed(query, result, shareUrl, shareId);
+
+      cacheResult(shareId, shareUrl, query, result, summary || null);
+
+      const messageId = interaction.customId.slice('pdc_follow_modal:'.length);
+      let updated = false;
+      if (interaction.channel && messageId) {
+        try {
+          const message = await interaction.channel.messages.fetch(messageId);
+          await message.edit({ embeds: [embed], components: [buttons] });
+          updated = true;
+        } catch (error) {
+          console.warn('Failed to update original message:', error);
+        }
+      }
+
+      if (updated) {
+        await interaction.editReply({ content: 'Updated the answer above.' });
+      } else {
+        await interaction.editReply({ content: 'Here is your follow-up:', embeds: [embed], components: [buttons] });
       }
     }
   } catch (error) {
