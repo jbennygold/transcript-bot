@@ -10,6 +10,7 @@ import {
   MessageFlags,
 } from 'discord.js';
 import { summarizeShareAnswer } from '../src/share-summary.js';
+import { generateFollowUpQuery } from '../src/follow-up.js';
 import { appendFeedbackToSheet } from '../src/feedback-sheet.js';
 
 dotenv.config({ path: '.env.local' });
@@ -21,6 +22,7 @@ const rawBaseUrl = process.env.DISCORD_SEARCH_BASE_URL
   || process.env.NEXT_PUBLIC_BASE_URL
   || 'http://localhost:3000';
 const baseUrl = rawBaseUrl.replace(/\/+$/, '');
+const followUpEnabled = Boolean(process.env.ANTHROPIC_API_KEY);
 
 if (!token) {
   console.error('Missing DISCORD_BOT_TOKEN in env.');
@@ -62,6 +64,7 @@ type CachedResult = {
   query: string;
   answer: string;
   summary: string | null;
+  followUp: string | null;
   sources: SearchResponse['sources'];
   createdAt: number;
 };
@@ -103,11 +106,16 @@ async function createShare(query: string, result: SearchResponse): Promise<{ sha
 }
 
 async function buildEmbed(query: string, result: SearchResponse, shareUrl: string, shareId: string) {
-  const summary = await summarizeShareAnswer({
-    query,
-    answer: result.answer,
-    maxChars: 900,
-  });
+  let summary: string | null = null;
+  try {
+    summary = await summarizeShareAnswer({
+      query,
+      answer: result.answer,
+      maxChars: 900,
+    });
+  } catch (error) {
+    console.warn('Failed to generate summary:', error);
+  }
 
   const embed = new EmbedBuilder()
     .setTitle(trimText(query, 256))
@@ -119,7 +127,19 @@ async function buildEmbed(query: string, result: SearchResponse, shareUrl: strin
     new ButtonBuilder()
       .setLabel('Open full answer')
       .setStyle(ButtonStyle.Link)
-      .setURL(shareUrl),
+      .setURL(shareUrl)
+  );
+
+  if (followUpEnabled) {
+    buttons.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`pdc_follow:${shareId}`)
+        .setLabel('Follow-up')
+        .setStyle(ButtonStyle.Primary)
+    );
+  }
+
+  buttons.addComponents(
     new ButtonBuilder()
       .setCustomId(`pdc_up:${shareId}`)
       .setLabel('👍')
@@ -133,13 +153,21 @@ async function buildEmbed(query: string, result: SearchResponse, shareUrl: strin
   return { embed, buttons, summary };
 }
 
-function cacheResult(shareId: string, shareUrl: string, query: string, result: SearchResponse, summary: string | null) {
+function cacheResult(
+  shareId: string,
+  shareUrl: string,
+  query: string,
+  result: SearchResponse,
+  summary: string | null,
+  followUp: string | null
+) {
   resultCache.set(shareId, {
     shareId,
     shareUrl,
     query,
     answer: result.answer,
     summary,
+    followUp,
     sources: result.sources,
     createdAt: Date.now(),
   });
@@ -183,7 +211,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       const { shareUrl, shareId } = await createShare(query, result);
       const { embed, buttons, summary } = await buildEmbed(query, result, shareUrl, shareId);
 
-      cacheResult(shareId, shareUrl, query, result, summary || null);
+      cacheResult(shareId, shareUrl, query, result, summary || null, null);
 
       await interaction.editReply({ embeds: [embed], components: [buttons] });
       return;
@@ -198,6 +226,37 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           content: 'This result has expired. Please run the command again.',
           flags: MessageFlags.Ephemeral,
         });
+        return;
+      }
+
+      if (action === 'pdc_follow') {
+        await interaction.deferReply();
+
+        let followUp = cached.followUp;
+        if (!followUp) {
+          try {
+            followUp = await generateFollowUpQuery({
+              query: cached.query,
+              answer: cached.answer,
+            });
+            cached.followUp = followUp || null;
+          } catch (error) {
+            console.warn('Failed to generate follow-up:', error);
+          }
+        }
+
+        if (!followUp) {
+          await interaction.editReply({ content: 'Follow-up suggestion unavailable right now.' });
+          return;
+        }
+
+        const result = await fetchSearch(followUp);
+        const { shareUrl, shareId } = await createShare(followUp, result);
+        const { embed, buttons, summary } = await buildEmbed(followUp, result, shareUrl, shareId);
+
+        cacheResult(shareId, shareUrl, followUp, result, summary || null, null);
+
+        await interaction.editReply({ embeds: [embed], components: [buttons] });
         return;
       }
 
