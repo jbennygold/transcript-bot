@@ -25,6 +25,7 @@ const rawBaseUrl = process.env.DISCORD_SEARCH_BASE_URL
   || 'http://localhost:3000';
 const baseUrl = rawBaseUrl.replace(/\/+$/, '');
 const clippyBlobBaseUrl = process.env.CLIPPY_BLOB_BASE_URL || process.env.BLOB_BASE_URL || '';
+const clippyWebUrl = (process.env.CLIPPY_WEB_URL || 'https://clippy-web-nine.vercel.app').replace(/\/+$/, '');
 
 if (!token) {
   console.error('Missing DISCORD_BOT_TOKEN in env.');
@@ -113,6 +114,23 @@ type CachedResult = {
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const resultCache = new Map<string, CachedResult>();
+
+type CachedClip = {
+  clip: PublishedClip;
+  episodeNumber: number;
+  createdAt: number;
+};
+const clipCache = new Map<string, CachedClip>();
+
+function getCachedClip(clipId: string): CachedClip | null {
+  const cached = clipCache.get(clipId);
+  if (!cached) return null;
+  if (Date.now() - cached.createdAt > CACHE_TTL_MS) {
+    clipCache.delete(clipId);
+    return null;
+  }
+  return cached;
+}
 
 function trimText(text: string, maxChars: number): string {
   if (text.length <= maxChars) {
@@ -271,17 +289,35 @@ function buildQuoteEmbed(clip: PublishedClip, analysis: PublishedAnalysis) {
     })
     .setFooter({ text: 'Escape Hatch Podcast Quote' });
 
-  if (clip.clipBlobUrl) {
-    const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setLabel('Listen')
-        .setStyle(ButtonStyle.Link)
-        .setURL(clip.clipBlobUrl)
-    );
-    return { embed, buttons };
-  }
+  const components: ActionRowBuilder<ButtonBuilder>[] = [];
 
-  return { embed, buttons: null };
+  // Row 1: Link button (must be in its own row — can't mix link + non-link)
+  const linkRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setLabel('Listen')
+      .setStyle(ButtonStyle.Link)
+      .setURL(`${clippyWebUrl}/clip/${clip.id}`)
+  );
+  components.push(linkRow);
+
+  // Row 2: Vote + note buttons
+  const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`quote_up:${clip.id}`)
+      .setLabel('\u{1F44D}')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`quote_down:${clip.id}`)
+      .setLabel('\u{1F44E}')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`quote_note:${clip.id}`)
+      .setLabel('Add note')
+      .setStyle(ButtonStyle.Secondary),
+  );
+  components.push(actionRow);
+
+  return { embed, components };
 }
 
 function cacheResult(
@@ -352,12 +388,13 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
         try {
           const { clip, analysis } = await getRandomClip();
-          const { embed, buttons } = buildQuoteEmbed(clip, analysis);
-          if (buttons) {
-            await interaction.editReply({ embeds: [embed], components: [buttons] });
-          } else {
-            await interaction.editReply({ embeds: [embed] });
-          }
+          clipCache.set(clip.id, {
+            clip,
+            episodeNumber: analysis.episodeNumber,
+            createdAt: Date.now(),
+          });
+          const { embed, components } = buildQuoteEmbed(clip, analysis);
+          await interaction.editReply({ embeds: [embed], components });
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Quote unavailable';
           await interaction.editReply({
@@ -391,6 +428,77 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         return;
       }
 
+      // --- Clip vote buttons ---
+      if (action === 'quote_up' || action === 'quote_down') {
+        const clipId = interaction.customId.split(':').slice(1).join(':');
+        const cachedClip = getCachedClip(clipId);
+        if (!cachedClip) {
+          await interaction.reply({
+            content: 'This clip has expired. Use /pdc-quote again.',
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+        try {
+          await postJson(`${clippyWebUrl}/api/feedback`, {
+            clipId,
+            episodeNumber: cachedClip.episodeNumber,
+            vote: action === 'quote_up' ? 'up' : 'down',
+            comment: '',
+            source: 'discord',
+          });
+          await interaction.reply({ content: 'Thanks for the feedback!', flags: MessageFlags.Ephemeral });
+        } catch (error) {
+          console.error('Failed to submit clip feedback:', error);
+          await interaction.reply({
+            content: 'Failed to submit feedback. Try again later.',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        return;
+      }
+
+      if (action === 'quote_note') {
+        const clipId = interaction.customId.split(':').slice(1).join(':');
+        const cachedClip = getCachedClip(clipId);
+        if (!cachedClip) {
+          await interaction.reply({
+            content: 'This clip has expired. Use /pdc-quote again.',
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId(`quote_note_modal:${clipId}`)
+          .setTitle('Rate this clip');
+
+        const voteInput = new TextInputBuilder()
+          .setCustomId('quote_vote')
+          .setLabel('Vote (up or down)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('up or down')
+          .setMaxLength(4)
+          .setRequired(true);
+
+        const noteInput = new TextInputBuilder()
+          .setCustomId('quote_comment')
+          .setLabel('Note (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('e.g., Great timing')
+          .setMaxLength(200)
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(voteInput),
+          new ActionRowBuilder<TextInputBuilder>().addComponents(noteInput),
+        );
+
+        await interaction.showModal(modal);
+        return;
+      }
+
+      // --- Search result buttons ---
       const cached = getCached(shareId);
       if (!cached) {
         await interaction.reply({
@@ -429,6 +537,48 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     }
 
     if (interaction.isModalSubmit()) {
+      // --- Clip note modal ---
+      if (interaction.customId.startsWith('quote_note_modal:')) {
+        const clipId = interaction.customId.slice('quote_note_modal:'.length);
+        const cachedClip = getCachedClip(clipId);
+        if (!cachedClip) {
+          await interaction.reply({
+            content: 'This clip has expired. Use /pdc-quote again.',
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const voteRaw = interaction.fields.getTextInputValue('quote_vote').trim().toLowerCase();
+        if (voteRaw !== 'up' && voteRaw !== 'down') {
+          await interaction.reply({
+            content: 'Vote must be "up" or "down". Please try again.',
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const comment = interaction.fields.getTextInputValue('quote_comment').trim();
+
+        try {
+          await postJson(`${clippyWebUrl}/api/feedback`, {
+            clipId,
+            episodeNumber: cachedClip.episodeNumber,
+            vote: voteRaw,
+            comment,
+            source: 'discord',
+          });
+          await interaction.reply({ content: 'Feedback saved!', flags: MessageFlags.Ephemeral });
+        } catch (error) {
+          console.error('Failed to submit clip feedback:', error);
+          await interaction.reply({
+            content: 'Failed to submit feedback. Try again later.',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        return;
+      }
+
       if (!interaction.customId.startsWith('pdc_follow_modal:')) {
         return;
       }
