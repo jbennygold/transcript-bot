@@ -79,6 +79,14 @@ function trimText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars - 3).trim()}...`;
 }
 
+function buildContextualQuery(userQuery: string, cached: CachedResult): string {
+  const contextAnswer = cached.summary || cached.answer;
+  const trimmedAnswer = trimText(contextAnswer, 600);
+  const trimmedQuestion = trimText(cached.query, 200);
+
+  return `${userQuery}\n\nContext:\nQ: ${trimmedQuestion}\nA: ${trimmedAnswer}`;
+}
+
 async function postJson<T>(url: string, payload: unknown): Promise<T> {
   const body = Buffer.from(JSON.stringify(payload), 'utf-8');
   const response = await fetch(url, {
@@ -218,7 +226,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
       if (action === 'pdc_follow') {
         const modal = new ModalBuilder()
-          .setCustomId(`pdc_follow_modal:${interaction.message?.id ?? shareId}`)
+          .setCustomId(`pdc_follow_modal:${shareId}:${interaction.message?.id ?? ''}`)
           .setTitle('Ask a follow-up');
 
         const input = new TextInputBuilder()
@@ -278,21 +286,40 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         return;
       }
 
+      const modalPayload = interaction.customId.slice('pdc_follow_modal:'.length);
+      const [shareId, messageId] = modalPayload.split(':');
+      if (!shareId) {
+        await interaction.reply({
+          content: 'This result has expired. Please run the command again.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
       const query = interaction.fields.getTextInputValue('followup_query').trim();
       if (!query) {
         await interaction.reply({ content: 'Please enter a follow-up question.', flags: MessageFlags.Ephemeral });
         return;
       }
 
+      const cached = getCached(shareId);
+      if (!cached) {
+        await interaction.reply({
+          content: 'This result has expired. Please run the command again.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
       await interaction.deferReply({ ephemeral: true });
 
-      const result = await fetchSearch(query);
-      const { shareUrl, shareId } = await createShare(query, result);
-      const { embed, buttons, summary } = await buildEmbed(query, result, shareUrl, shareId);
+      const contextualQuery = buildContextualQuery(query, cached);
+      const result = await fetchSearch(contextualQuery);
+      const { shareUrl, shareId: nextShareId } = await createShare(query, result);
+      const { embed, buttons, summary } = await buildEmbed(query, result, shareUrl, nextShareId);
 
-      cacheResult(shareId, shareUrl, query, result, summary || null);
+      cacheResult(nextShareId, shareUrl, query, result, summary || null);
 
-      const messageId = interaction.customId.slice('pdc_follow_modal:'.length);
       let updated = false;
       if (interaction.channel && messageId) {
         try {
