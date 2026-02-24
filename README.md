@@ -11,6 +11,7 @@ Standalone Discord bot for Escape Hatch Podcast Search.
 - `DISCORD_FEEDBACK_SHEET_ID` (Google Sheet ID for 👎 feedback logging)
 - `DISCORD_FEEDBACK_SHEET_TAB` (optional, default: `Feedback`)
 - `GOOGLE_SERVICE_ACCOUNT_JSON` (service account JSON with Sheets access)
+- `CLIPPY_BLOB_BASE_URL` (base URL for published clip data, e.g. https://your-blob-base)
 
 ## Setup
 1) Install dependencies
@@ -31,3 +32,4 @@ npm run bot
 ## Notes
 - The bot calls `/api/search` and `/api/share` on `DISCORD_SEARCH_BASE_URL`.
 - Results are cached in memory for 15 minutes to support button actions.
+- `/pdc-quote` pulls from `CLIPPY_BLOB_BASE_URL` (or `BLOB_BASE_URL`) at `/clippy/index.json`.

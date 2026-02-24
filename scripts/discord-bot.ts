@@ -24,6 +24,7 @@ const rawBaseUrl = process.env.DISCORD_SEARCH_BASE_URL
   || process.env.NEXT_PUBLIC_BASE_URL
   || 'http://localhost:3000';
 const baseUrl = rawBaseUrl.replace(/\/+$/, '');
+const clippyBlobBaseUrl = process.env.CLIPPY_BLOB_BASE_URL || process.env.BLOB_BASE_URL || '';
 
 if (!token) {
   console.error('Missing DISCORD_BOT_TOKEN in env.');
@@ -59,6 +60,47 @@ type SearchResponse = {
   };
 };
 
+type ClipIndex = {
+  generatedAt: string;
+  totalEpisodes: number;
+  totalClips: number;
+  episodes: {
+    episodeNumber: number;
+    episodeName: string;
+    film: string;
+    clipCount: number;
+    analyzedAt: string;
+  }[];
+};
+
+type PublishedClip = {
+  id: string;
+  episodeNumber: number;
+  episodeName: string;
+  title: string;
+  description: string;
+  category: string;
+  speakers: string[];
+  startTimestamp: string;
+  endTimestamp: string;
+  startSeconds: number;
+  endSeconds: number;
+  durationSeconds: number;
+  rank: number;
+  confidence: number;
+  transcriptExcerpt: string;
+  clipBlobUrl: string;
+};
+
+type PublishedAnalysis = {
+  episodeNumber: number;
+  episodeName: string;
+  film: string;
+  analyzedAt: string;
+  modelUsed: string;
+  clips: PublishedClip[];
+};
+
 type CachedResult = {
   shareId: string;
   shareUrl: string;
@@ -79,12 +121,76 @@ function trimText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars - 3).trim()}...`;
 }
 
+function formatDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds % 60);
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
 function buildContextualQuery(userQuery: string, cached: CachedResult): string {
   const contextAnswer = cached.summary || cached.answer;
   const trimmedAnswer = trimText(contextAnswer, 600);
   const trimmedQuestion = trimText(cached.query, 200);
 
   return `${userQuery}\n\nContext:\nQ: ${trimmedQuestion}\nA: ${trimmedAnswer}`;
+}
+
+function buildClippyUrl(path: string): string | null {
+  if (!clippyBlobBaseUrl) {
+    return null;
+  }
+  const base = clippyBlobBaseUrl.replace(/\/+$/, '');
+  return `${base}/clippy/${path}`;
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${url}: ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+function pickRandomEpisode(index: ClipIndex) {
+  let target = Math.floor(Math.random() * index.totalClips);
+  for (const episode of index.episodes) {
+    if (target < episode.clipCount) {
+      return episode;
+    }
+    target -= episode.clipCount;
+  }
+  return index.episodes[index.episodes.length - 1];
+}
+
+function pickRandomClip(clips: PublishedClip[]): PublishedClip {
+  const preferred = clips.filter((clip) => clip.confidence >= 0.7);
+  const pool = preferred.length > 0 ? preferred : clips;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+async function getRandomClip(): Promise<{ clip: PublishedClip; analysis: PublishedAnalysis }> {
+  const indexUrl = buildClippyUrl('index.json');
+  if (!indexUrl) {
+    throw new Error('Clippy blob base URL not configured');
+  }
+
+  const index = await fetchJson<ClipIndex>(indexUrl);
+  if (!index.episodes.length || index.totalClips === 0) {
+    throw new Error('No clips available');
+  }
+
+  const episode = pickRandomEpisode(index);
+  const analysisUrl = buildClippyUrl(`analyses/episode_${episode.episodeNumber}.json`);
+  if (!analysisUrl) {
+    throw new Error('Clippy blob base URL not configured');
+  }
+
+  const analysis = await fetchJson<PublishedAnalysis>(analysisUrl);
+  if (!analysis.clips.length) {
+    throw new Error('No clips available');
+  }
+
+  return { clip: pickRandomClip(analysis.clips), analysis };
 }
 
 async function postJson<T>(url: string, payload: unknown): Promise<T> {
@@ -159,6 +265,50 @@ async function buildEmbed(query: string, result: SearchResponse, shareUrl: strin
   return { embed, buttons, summary };
 }
 
+function buildQuoteEmbed(clip: PublishedClip, analysis: PublishedAnalysis) {
+  const description = trimText(clip.transcriptExcerpt || clip.description || clip.title, 900);
+  const embed = new EmbedBuilder()
+    .setTitle(trimText(clip.title || 'Random Quote', 256))
+    .setDescription(description)
+    .setColor(0x5865f2)
+    .addFields(
+      {
+        name: 'Episode',
+        value: `#${analysis.episodeNumber} — ${analysis.episodeName}`,
+      },
+      {
+        name: 'Category',
+        value: clip.category || 'quote',
+        inline: true,
+      },
+      {
+        name: 'Duration',
+        value: formatDuration(clip.durationSeconds),
+        inline: true,
+      }
+    )
+    .setFooter({ text: 'Escape Hatch Podcast Quote' });
+
+  if (clip.speakers?.length) {
+    embed.addFields({
+      name: 'Speakers',
+      value: trimText(clip.speakers.join(', '), 100),
+    });
+  }
+
+  if (clip.clipBlobUrl) {
+    const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel('Listen')
+        .setStyle(ButtonStyle.Link)
+        .setURL(clip.clipBlobUrl)
+    );
+    return { embed, buttons };
+  }
+
+  return { embed, buttons: null };
+}
+
 function cacheResult(
   shareId: string,
   shareUrl: string,
@@ -206,19 +356,41 @@ client.once('clientReady', () => {
 
 client.on('interactionCreate', async (interaction: Interaction) => {
   try {
-    if (interaction.isChatInputCommand() && interaction.commandName === 'pdc') {
-      const query = interaction.options.getString('query', true);
+    if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === 'pdc') {
+        const query = interaction.options.getString('query', true);
 
-      await interaction.deferReply();
+        await interaction.deferReply();
 
-      const result = await fetchSearch(query);
-      const { shareUrl, shareId } = await createShare(query, result);
-      const { embed, buttons, summary } = await buildEmbed(query, result, shareUrl, shareId);
+        const result = await fetchSearch(query);
+        const { shareUrl, shareId } = await createShare(query, result);
+        const { embed, buttons, summary } = await buildEmbed(query, result, shareUrl, shareId);
 
-      cacheResult(shareId, shareUrl, query, result, summary || null);
+        cacheResult(shareId, shareUrl, query, result, summary || null);
 
-      await interaction.editReply({ embeds: [embed], components: [buttons] });
-      return;
+        await interaction.editReply({ embeds: [embed], components: [buttons] });
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-quote') {
+        await interaction.deferReply();
+
+        try {
+          const { clip, analysis } = await getRandomClip();
+          const { embed, buttons } = buildQuoteEmbed(clip, analysis);
+          if (buttons) {
+            await interaction.editReply({ embeds: [embed], components: [buttons] });
+          } else {
+            await interaction.editReply({ embeds: [embed] });
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Quote unavailable';
+          await interaction.editReply({
+            content: `${message}. Set CLIPPY_BLOB_BASE_URL or BLOB_BASE_URL and publish clips.`,
+          });
+        }
+        return;
+      }
     }
 
     if (interaction.isButton()) {

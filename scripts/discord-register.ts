@@ -23,7 +23,11 @@ const command = new SlashCommandBuilder()
       .setRequired(true)
   );
 
-const commands = [command.toJSON()];
+const quoteCommand = new SlashCommandBuilder()
+  .setName('pdc-quote')
+  .setDescription('Get a random great quote from the pod');
+
+const commands = [command.toJSON(), quoteCommand.toJSON()];
 
 const rest = new REST({ version: '10' }).setToken(token);
 
