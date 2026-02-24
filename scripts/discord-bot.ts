@@ -300,7 +300,7 @@ function buildQuoteEmbed(clip: PublishedClip, analysis: PublishedAnalysis) {
   );
   components.push(linkRow);
 
-  // Row 2: Vote + note buttons
+  // Row 2: Vote + vote-with-note buttons
   const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`quote_up:${clip.id}`)
@@ -311,8 +311,12 @@ function buildQuoteEmbed(clip: PublishedClip, analysis: PublishedAnalysis) {
       .setLabel('\u{1F44E}')
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId(`quote_note:${clip.id}`)
-      .setLabel('Add note')
+      .setCustomId(`quote_note_up:${clip.id}`)
+      .setLabel('\u{1F44D} + Note')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`quote_note_down:${clip.id}`)
+      .setLabel('\u{1F44E} + Note')
       .setStyle(ButtonStyle.Secondary),
   );
   components.push(actionRow);
@@ -458,7 +462,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         return;
       }
 
-      if (action === 'quote_note') {
+      if (action === 'quote_note_up' || action === 'quote_note_down') {
         const clipId = interaction.customId.split(':').slice(1).join(':');
         const cachedClip = getCachedClip(clipId);
         if (!cachedClip) {
@@ -469,28 +473,20 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           return;
         }
 
+        const vote = action === 'quote_note_up' ? 'up' : 'down';
         const modal = new ModalBuilder()
-          .setCustomId(`quote_note_modal:${clipId}`)
-          .setTitle('Rate this clip');
-
-        const voteInput = new TextInputBuilder()
-          .setCustomId('quote_vote')
-          .setLabel('Vote (up or down)')
-          .setStyle(TextInputStyle.Short)
-          .setPlaceholder('up or down')
-          .setMaxLength(4)
-          .setRequired(true);
+          .setCustomId(`quote_note_modal:${vote}:${clipId}`)
+          .setTitle(vote === 'up' ? 'Add note (\u{1F44D})' : 'Add note (\u{1F44E})');
 
         const noteInput = new TextInputBuilder()
           .setCustomId('quote_comment')
-          .setLabel('Note (optional)')
+          .setLabel('Note')
           .setStyle(TextInputStyle.Short)
           .setPlaceholder('e.g., Great timing')
           .setMaxLength(200)
           .setRequired(false);
 
         modal.addComponents(
-          new ActionRowBuilder<TextInputBuilder>().addComponents(voteInput),
           new ActionRowBuilder<TextInputBuilder>().addComponents(noteInput),
         );
 
@@ -539,20 +535,15 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     if (interaction.isModalSubmit()) {
       // --- Clip note modal ---
       if (interaction.customId.startsWith('quote_note_modal:')) {
-        const clipId = interaction.customId.slice('quote_note_modal:'.length);
+        // Format: quote_note_modal:{up|down}:{clipId}
+        const payload = interaction.customId.slice('quote_note_modal:'.length);
+        const colonIdx = payload.indexOf(':');
+        const vote = payload.slice(0, colonIdx);
+        const clipId = payload.slice(colonIdx + 1);
         const cachedClip = getCachedClip(clipId);
         if (!cachedClip) {
           await interaction.reply({
             content: 'This clip has expired. Use /pdc-quote again.',
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
-        }
-
-        const voteRaw = interaction.fields.getTextInputValue('quote_vote').trim().toLowerCase();
-        if (voteRaw !== 'up' && voteRaw !== 'down') {
-          await interaction.reply({
-            content: 'Vote must be "up" or "down". Please try again.',
             flags: MessageFlags.Ephemeral,
           });
           return;
@@ -564,7 +555,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           await postJson(`${clippyWebUrl}/api/feedback`, {
             clipId,
             episodeNumber: cachedClip.episodeNumber,
-            vote: voteRaw,
+            vote,
             comment,
             source: 'discord',
           });
