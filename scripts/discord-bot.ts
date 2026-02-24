@@ -121,12 +121,6 @@ function trimText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars - 3).trim()}...`;
 }
 
-function formatDuration(totalSeconds: number): string {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = Math.round(totalSeconds % 60);
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-}
-
 function buildContextualQuery(userQuery: string, cached: CachedResult): string {
   const contextAnswer = cached.summary || cached.answer;
   const trimmedAnswer = trimText(contextAnswer, 600);
@@ -271,30 +265,11 @@ function buildQuoteEmbed(clip: PublishedClip, analysis: PublishedAnalysis) {
     .setTitle(trimText(clip.title || 'Random Quote', 256))
     .setDescription(description)
     .setColor(0x5865f2)
-    .addFields(
-      {
-        name: 'Episode',
-        value: `#${analysis.episodeNumber} — ${analysis.episodeName}`,
-      },
-      {
-        name: 'Category',
-        value: clip.category || 'quote',
-        inline: true,
-      },
-      {
-        name: 'Duration',
-        value: formatDuration(clip.durationSeconds),
-        inline: true,
-      }
-    )
+    .addFields({
+      name: 'Episode',
+      value: `#${analysis.episodeNumber} — ${analysis.episodeName}`,
+    })
     .setFooter({ text: 'Escape Hatch Podcast Quote' });
-
-  if (clip.speakers?.length) {
-    embed.addFields({
-      name: 'Speakers',
-      value: trimText(clip.speakers.join(', '), 100),
-    });
-  }
 
   if (clip.clipBlobUrl) {
     const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
