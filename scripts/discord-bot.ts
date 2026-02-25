@@ -251,7 +251,7 @@ async function buildEmbed(query: string, result: SearchResponse, shareUrl: strin
 
   const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setLabel('Open full answer')
+      .setLabel('Full answer')
       .setStyle(ButtonStyle.Link)
       .setURL(shareUrl)
   );
