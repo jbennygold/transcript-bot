@@ -13,13 +13,11 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import { summarizeShareAnswer } from '../src/share-summary.js';
-import { appendFeedbackToSheet } from '../src/feedback-sheet.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const token = process.env.DISCORD_BOT_TOKEN;
-const feedbackSheetId = process.env.DISCORD_FEEDBACK_SHEET_ID;
 const rawBaseUrl = process.env.DISCORD_SEARCH_BASE_URL
   || process.env.NEXT_PUBLIC_BASE_URL
   || 'http://localhost:3000';
@@ -361,9 +359,6 @@ const client = new Client({
 client.once('clientReady', () => {
   console.log(`Discord bot logged in as ${client.user?.tag}`);
   console.log(`DISCORD_SEARCH_BASE_URL: ${baseUrl}`);
-  if (feedbackSheetId) {
-    console.log(`DISCORD_FEEDBACK_SHEET_ID: ${feedbackSheetId}`);
-  }
   if (baseUrl.includes('localhost')) {
     console.warn('Warning: Bot is configured to use localhost. Set DISCORD_SEARCH_BASE_URL to your public transcript-app URL.');
   }
@@ -506,33 +501,72 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
       if (action === 'pdc_up') {
         await interaction.reply({ content: 'Thanks for the feedback!', flags: MessageFlags.Ephemeral });
+        try {
+          await postJson(`${baseUrl}/api/feedback`, {
+            name: interaction.user.tag,
+            query: cached.query,
+            answer: cached.summary || cached.answer,
+            rating: 'good',
+            source: 'discord',
+            shareUrl: cached.shareUrl,
+          });
+        } catch (error) {
+          console.error('Failed to store feedback:', error);
+        }
         return;
       }
 
       if (action === 'pdc_down') {
-        await interaction.reply({ content: "Thanks \u2014 we'll use this to improve.", flags: MessageFlags.Ephemeral });
-        if (!feedbackSheetId) {
-          console.warn('DISCORD_FEEDBACK_SHEET_ID not set; feedback not stored.');
-          return;
-        }
-        try {
-          await appendFeedbackToSheet({
-            timestamp: new Date().toISOString(),
-            userTag: interaction.user.tag,
-            userId: interaction.user.id,
-            query: cached.query,
-            shareUrl: cached.shareUrl,
-            summary: cached.summary,
-            guildId: interaction.guildId,
-            channelId: interaction.channelId,
-          });
-        } catch (error) {
-          console.error('Failed to store feedback in sheet:', error);
-        }
+        const modal = new ModalBuilder()
+          .setCustomId(`pdc_down_modal:${shareId}`)
+          .setTitle("What could be better?");
+
+        const input = new TextInputBuilder()
+          .setCustomId('pdc_comment')
+          .setLabel('Comment (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('e.g., Wrong episode, off topic')
+          .setMaxLength(200)
+          .setRequired(false);
+
+        modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+        await interaction.showModal(modal);
+        return;
       }
     }
 
     if (interaction.isModalSubmit()) {
+      // --- Search result thumbs-down modal ---
+      if (interaction.customId.startsWith('pdc_down_modal:')) {
+        const shareId = interaction.customId.slice('pdc_down_modal:'.length);
+        const cached = getCached(shareId);
+        if (!cached) {
+          await interaction.reply({
+            content: 'This result has expired. Please run the command again.',
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const comment = interaction.fields.getTextInputValue('pdc_comment').trim();
+        await interaction.reply({ content: "Thanks \u2014 we'll use this to improve.", flags: MessageFlags.Ephemeral });
+
+        try {
+          await postJson(`${baseUrl}/api/feedback`, {
+            name: interaction.user.tag,
+            query: cached.query,
+            answer: cached.summary || cached.answer,
+            rating: 'bad',
+            comment: comment || undefined,
+            source: 'discord',
+            shareUrl: cached.shareUrl,
+          });
+        } catch (error) {
+          console.error('Failed to store feedback:', error);
+        }
+        return;
+      }
+
       // --- Clip note modal ---
       if (interaction.customId.startsWith('quote_note_modal:')) {
         // Format: quote_note_modal:{up|down}:{clipId}
