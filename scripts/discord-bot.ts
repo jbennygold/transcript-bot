@@ -113,21 +113,9 @@ type CachedResult = {
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const resultCache = new Map<string, CachedResult>();
 
-type CachedClip = {
-  clip: PublishedClip;
-  episodeNumber: number;
-  createdAt: number;
-};
-const clipCache = new Map<string, CachedClip>();
-
-function getCachedClip(clipId: string): CachedClip | null {
-  const cached = clipCache.get(clipId);
-  if (!cached) return null;
-  if (Date.now() - cached.createdAt > CACHE_TTL_MS) {
-    clipCache.delete(clipId);
-    return null;
-  }
-  return cached;
+function parseEpisodeNumber(clipId: string): number | null {
+  const match = clipId.match(/^ep(\d+)-clip-/);
+  return match ? parseInt(match[1], 10) : null;
 }
 
 function trimText(text: string, maxChars: number): string {
@@ -387,11 +375,6 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
         try {
           const { clip, analysis } = await getRandomClip();
-          clipCache.set(clip.id, {
-            clip,
-            episodeNumber: analysis.episodeNumber,
-            createdAt: Date.now(),
-          });
           const { embed, components } = buildQuoteEmbed(clip, analysis);
           await interaction.editReply({ embeds: [embed], components });
         } catch (error) {
@@ -430,10 +413,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       // --- Clip vote buttons ---
       if (action === 'quote_up' || action === 'quote_down') {
         const clipId = interaction.customId.split(':').slice(1).join(':');
-        const cachedClip = getCachedClip(clipId);
-        if (!cachedClip) {
+        const episodeNumber = parseEpisodeNumber(clipId);
+        if (!episodeNumber) {
           await interaction.reply({
-            content: 'This clip has expired. Use /pdc-quote again.',
+            content: 'Could not parse clip ID. Use /pdc-quote again.',
             flags: MessageFlags.Ephemeral,
           });
           return;
@@ -441,7 +424,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         try {
           await postJson(`${clippyWebUrl}/api/feedback`, {
             clipId,
-            episodeNumber: cachedClip.episodeNumber,
+            episodeNumber,
             vote: action === 'quote_up' ? 'up' : 'down',
             comment: '',
             source: 'discord',
@@ -459,10 +442,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
       if (action === 'quote_note_up' || action === 'quote_note_down') {
         const clipId = interaction.customId.split(':').slice(1).join(':');
-        const cachedClip = getCachedClip(clipId);
-        if (!cachedClip) {
+        const episodeNumber = parseEpisodeNumber(clipId);
+        if (!episodeNumber) {
           await interaction.reply({
-            content: 'This clip has expired. Use /pdc-quote again.',
+            content: 'Could not parse clip ID. Use /pdc-quote again.',
             flags: MessageFlags.Ephemeral,
           });
           return;
@@ -574,10 +557,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         const colonIdx = payload.indexOf(':');
         const vote = payload.slice(0, colonIdx);
         const clipId = payload.slice(colonIdx + 1);
-        const cachedClip = getCachedClip(clipId);
-        if (!cachedClip) {
+        const episodeNumber = parseEpisodeNumber(clipId);
+        if (!episodeNumber) {
           await interaction.reply({
-            content: 'This clip has expired. Use /pdc-quote again.',
+            content: 'Could not parse clip ID. Use /pdc-quote again.',
             flags: MessageFlags.Ephemeral,
           });
           return;
@@ -588,7 +571,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         try {
           await postJson(`${clippyWebUrl}/api/feedback`, {
             clipId,
-            episodeNumber: cachedClip.episodeNumber,
+            episodeNumber,
             vote,
             comment,
             source: 'discord',
