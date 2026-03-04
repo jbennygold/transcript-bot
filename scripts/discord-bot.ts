@@ -100,6 +100,17 @@ type PublishedAnalysis = {
   clips: PublishedClip[];
 };
 
+type TildaResponse = {
+  film: string;
+  episodeNumber: number | null;
+  pod: string | null;
+  tildaH: string | null;
+  tildaJason: string | null;
+  tildaGuest: string | null;
+  tildaCorey: string | null;
+  source: 'metadata' | 'generated';
+};
+
 type SynopsisResponse = {
   film: string;
   episodeNumber: number | null;
@@ -224,6 +235,34 @@ async function fetchSearch(query: string): Promise<SearchResponse> {
 
 async function fetchSynopsis(film: string): Promise<SynopsisResponse> {
   return fetchJson<SynopsisResponse>(`${baseUrl}/api/synopsis?film=${encodeURIComponent(film)}`);
+}
+
+async function fetchTilda(film: string): Promise<TildaResponse> {
+  return fetchJson<TildaResponse>(`${baseUrl}/api/tilda?film=${encodeURIComponent(film)}`);
+}
+
+function buildTildaEmbed(film: string, data: TildaResponse) {
+  const isReal = data.source === 'metadata';
+  const embed = new EmbedBuilder()
+    .setTitle(`Who would Tilda Swinton play in ${data.film || film}?`)
+    .setColor(isReal ? 0x5865f2 : 0x57f287)
+    .setFooter({
+      text: isReal ? 'Escape Hatch Pod — Tilda question' : 'AI generated (film not yet covered)',
+    });
+
+  if (data.tildaH) embed.addFields({ name: 'Haitch', value: data.tildaH, inline: true });
+  if (data.tildaJason) embed.addFields({ name: 'Jason', value: data.tildaJason, inline: true });
+  if (data.tildaGuest) embed.addFields({ name: 'Guest', value: data.tildaGuest, inline: true });
+  if (data.tildaCorey) embed.addFields({ name: 'Corey', value: data.tildaCorey, inline: true });
+
+  if (data.episodeNumber !== null) {
+    embed.addFields({
+      name: 'Episode',
+      value: `Escape Hatch #${data.episodeNumber}`,
+    });
+  }
+
+  return embed;
 }
 
 function buildSynopsisEmbed(film: string, data: SynopsisResponse) {
@@ -430,6 +469,19 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           await interaction.editReply({ embeds: [buildSynopsisEmbed(film, data)] });
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Could not fetch synopsis';
+          await interaction.editReply({ content: msg });
+        }
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-tilda') {
+        const film = interaction.options.getString('movie', true).trim();
+        await interaction.deferReply();
+        try {
+          const data = await fetchTilda(film);
+          await interaction.editReply({ embeds: [buildTildaEmbed(film, data)] });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Could not fetch Tilda answer';
           await interaction.editReply({ content: msg });
         }
         return;

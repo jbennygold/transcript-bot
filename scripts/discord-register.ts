@@ -34,7 +34,14 @@ const synopsisCommand = new SlashCommandBuilder()
     option.setName('movie').setDescription('Film title').setRequired(true)
   );
 
-const commands = [command.toJSON(), quoteCommand.toJSON(), synopsisCommand.toJSON()];
+const tildaCommand = new SlashCommandBuilder()
+  .setName('pdc-tilda')
+  .setDescription('Who would Tilda Swinton play in this film?')
+  .addStringOption((option) =>
+    option.setName('movie').setDescription('Film title').setRequired(true)
+  );
+
+const commands = [command.toJSON(), quoteCommand.toJSON(), synopsisCommand.toJSON(), tildaCommand.toJSON()];
 
 const rest = new REST({ version: '10' }).setToken(token);
 
