@@ -41,7 +41,36 @@ const tildaCommand = new SlashCommandBuilder()
     option.setName('movie').setDescription('Film title').setRequired(true)
   );
 
-const commands = [command.toJSON(), quoteCommand.toJSON(), synopsisCommand.toJSON(), tildaCommand.toJSON()];
+const guestCommand = new SlashCommandBuilder()
+  .setName('pdc-guest')
+  .setDescription('Find all episodes a guest appeared on')
+  .addStringOption((option) =>
+    option.setName('name').setDescription('Guest name').setRequired(true)
+  );
+
+const kevCommand = new SlashCommandBuilder()
+  .setName('pdc-kev')
+  .setDescription("Get Kev's question of the week for a film")
+  .addStringOption((option) =>
+    option.setName('movie').setDescription('Film title').setRequired(true)
+  );
+
+const statsCommand = new SlashCommandBuilder()
+  .setName('pdc-stats')
+  .setDescription('Get episode stats for a film')
+  .addStringOption((option) =>
+    option.setName('movie').setDescription('Film title').setRequired(true)
+  );
+
+const commands = [
+  command.toJSON(),
+  quoteCommand.toJSON(),
+  synopsisCommand.toJSON(),
+  tildaCommand.toJSON(),
+  guestCommand.toJSON(),
+  kevCommand.toJSON(),
+  statsCommand.toJSON(),
+];
 
 const rest = new REST({ version: '10' }).setToken(token);
 

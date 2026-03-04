@@ -100,6 +100,40 @@ type PublishedAnalysis = {
   clips: PublishedClip[];
 };
 
+type GuestEpisode = {
+  film: string;
+  episodeNumber: number | string;
+  pod: string;
+  season: number;
+  releaseDate: string;
+};
+
+type GuestResponse = {
+  guest: string;
+  episodes: GuestEpisode[];
+};
+
+type KevResponse = {
+  film: string;
+  episodeNumber: number | null;
+  pod: string | null;
+  question: string;
+  source: 'metadata' | 'generated';
+};
+
+type StatsResponse = {
+  film: string;
+  episodeNumber: number | string | null;
+  pod: string;
+  season: number;
+  releaseDate: string;
+  guest: string | null;
+  mmmCount: number;
+  thatsGreatCount: number;
+  notableMoments: string | null;
+  showLink: string | null;
+};
+
 type TildaResponse = {
   film: string;
   episodeNumber: number | null;
@@ -261,6 +295,70 @@ function buildTildaEmbed(film: string, data: TildaResponse) {
       value: `Escape Hatch #${data.episodeNumber}`,
     });
   }
+
+  return embed;
+}
+
+async function fetchGuest(name: string): Promise<GuestResponse> {
+  return fetchJson<GuestResponse>(`${baseUrl}/api/guest?name=${encodeURIComponent(name)}`);
+}
+
+async function fetchKev(film: string): Promise<KevResponse> {
+  return fetchJson<KevResponse>(`${baseUrl}/api/kev?film=${encodeURIComponent(film)}`);
+}
+
+async function fetchStats(film: string): Promise<StatsResponse> {
+  return fetchJson<StatsResponse>(`${baseUrl}/api/stats?film=${encodeURIComponent(film)}`);
+}
+
+function buildGuestEmbed(data: GuestResponse) {
+  const lines = data.episodes.map((e) => {
+    const year = e.releaseDate ? ` (${e.releaseDate.slice(0, 4)})` : '';
+    return `**#${e.episodeNumber}** — ${e.film}${year}`;
+  });
+
+  const MAX_LINES = 20;
+  let description = lines.slice(0, MAX_LINES).join('\n');
+  if (lines.length > MAX_LINES) {
+    description += `\n_...and ${lines.length - MAX_LINES} more_`;
+  }
+
+  return new EmbedBuilder()
+    .setTitle(`Episodes with ${data.guest}`)
+    .setDescription(description)
+    .setColor(0x5865f2)
+    .setFooter({ text: `${data.episodes.length} episode${data.episodes.length !== 1 ? 's' : ''}` });
+}
+
+function buildKevEmbed(film: string, data: KevResponse) {
+  const isReal = data.source === 'metadata';
+  const embed = new EmbedBuilder()
+    .setTitle(`Kev's Question — ${data.film || film}`)
+    .setDescription(`*"${data.question}"*`)
+    .setColor(isReal ? 0x5865f2 : 0x57f287)
+    .setFooter({ text: isReal ? "Kev's actual question" : "Kev's question (AI generated)" });
+
+  if (data.episodeNumber !== null) {
+    embed.addFields({ name: 'Episode', value: `Escape Hatch #${data.episodeNumber}`, inline: true });
+  }
+
+  return embed;
+}
+
+function buildStatsEmbed(data: StatsResponse) {
+  const embed = new EmbedBuilder()
+    .setTitle(`${data.film}`)
+    .setColor(0x5865f2)
+    .addFields(
+      { name: 'Episode', value: `#${data.episodeNumber} — Season ${data.season}`, inline: true },
+      { name: 'Released', value: data.releaseDate.slice(0, 10), inline: true },
+    );
+
+  if (data.guest) embed.addFields({ name: 'Guest', value: data.guest, inline: true });
+  if (data.mmmCount > 0) embed.addFields({ name: 'MMMs', value: String(data.mmmCount), inline: true });
+  if (data.thatsGreatCount > 0) embed.addFields({ name: "That's Greats", value: String(data.thatsGreatCount), inline: true });
+  if (data.notableMoments) embed.addFields({ name: 'Notable Moments', value: trimText(data.notableMoments, 500) });
+  if (data.showLink) embed.addFields({ name: 'Listen', value: data.showLink });
 
   return embed;
 }
@@ -482,6 +580,45 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           await interaction.editReply({ embeds: [buildTildaEmbed(film, data)] });
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Could not fetch Tilda answer';
+          await interaction.editReply({ content: msg });
+        }
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-guest') {
+        const name = interaction.options.getString('name', true).trim();
+        await interaction.deferReply();
+        try {
+          const data = await fetchGuest(name);
+          await interaction.editReply({ embeds: [buildGuestEmbed(data)] });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Could not find guest';
+          await interaction.editReply({ content: msg });
+        }
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-kev') {
+        const film = interaction.options.getString('movie', true).trim();
+        await interaction.deferReply();
+        try {
+          const data = await fetchKev(film);
+          await interaction.editReply({ embeds: [buildKevEmbed(film, data)] });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "Could not fetch Kev's question";
+          await interaction.editReply({ content: msg });
+        }
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-stats') {
+        const film = interaction.options.getString('movie', true).trim();
+        await interaction.deferReply();
+        try {
+          const data = await fetchStats(film);
+          await interaction.editReply({ embeds: [buildStatsEmbed(data)] });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Could not fetch stats';
           await interaction.editReply({ content: msg });
         }
         return;
