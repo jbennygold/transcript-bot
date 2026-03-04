@@ -313,8 +313,7 @@ async function fetchStats(film: string): Promise<StatsResponse> {
 
 function buildGuestEmbed(data: GuestResponse) {
   const lines = data.episodes.map((e) => {
-    const year = e.releaseDate ? ` (${e.releaseDate.slice(0, 4)})` : '';
-    return `**#${e.episodeNumber}** — ${e.film}${year}`;
+    return `**#${e.episodeNumber}** — ${e.film}`;
   });
 
   const MAX_LINES = 20;
