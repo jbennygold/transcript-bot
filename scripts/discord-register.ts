@@ -27,7 +27,14 @@ const quoteCommand = new SlashCommandBuilder()
   .setName('pdc-quote')
   .setDescription('Get a random great quote from the pod');
 
-const commands = [command.toJSON(), quoteCommand.toJSON()];
+const synopsisCommand = new SlashCommandBuilder()
+  .setName('pdc-synopsis')
+  .setDescription("Get a synopsis of a film in Haitch's style")
+  .addStringOption((option) =>
+    option.setName('movie').setDescription('Film title').setRequired(true)
+  );
+
+const commands = [command.toJSON(), quoteCommand.toJSON(), synopsisCommand.toJSON()];
 
 const rest = new REST({ version: '10' }).setToken(token);
 

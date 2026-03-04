@@ -100,6 +100,16 @@ type PublishedAnalysis = {
   clips: PublishedClip[];
 };
 
+type SynopsisResponse = {
+  film: string;
+  episodeNumber: number | null;
+  episodeName: string | null;
+  pod: string | null;
+  timestamp: string | null;
+  synopsis: string;
+  source: 'transcript' | 'generated';
+};
+
 type CachedResult = {
   shareId: string;
   shareUrl: string;
@@ -210,6 +220,32 @@ async function postJson<T>(url: string, payload: unknown): Promise<T> {
 
 async function fetchSearch(query: string): Promise<SearchResponse> {
   return postJson<SearchResponse>(`${baseUrl}/api/search`, { query });
+}
+
+async function fetchSynopsis(film: string): Promise<SynopsisResponse> {
+  return fetchJson<SynopsisResponse>(`${baseUrl}/api/synopsis?film=${encodeURIComponent(film)}`);
+}
+
+function buildSynopsisEmbed(film: string, data: SynopsisResponse) {
+  const isReal = data.source === 'transcript';
+  const embed = new EmbedBuilder()
+    .setTitle(data.film || film)
+    .setDescription(trimText(data.synopsis, 4000))
+    .setColor(isReal ? 0x5865f2 : 0x57f287)
+    .setFooter({
+      text: isReal ? "Haitch's actual synopsis" : "Synopsis in Haitch's style (AI generated)",
+    });
+
+  if (data.episodeNumber !== null) {
+    const epTitle = data.episodeName ?? data.film;
+    const timestamp = data.timestamp ? ` (${data.timestamp})` : '';
+    embed.addFields({
+      name: 'Episode',
+      value: `Escape Hatch #${data.episodeNumber} — ${epTitle}${timestamp}`,
+    });
+  }
+
+  return embed;
 }
 
 async function createShare(query: string, result: SearchResponse): Promise<{ shareUrl: string; shareId: string }> {
@@ -382,6 +418,19 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           await interaction.editReply({
             content: `${message}. Set CLIPPY_BLOB_BASE_URL or BLOB_BASE_URL and publish clips.`,
           });
+        }
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-synopsis') {
+        const film = interaction.options.getString('movie', true).trim();
+        await interaction.deferReply();
+        try {
+          const data = await fetchSynopsis(film);
+          await interaction.editReply({ embeds: [buildSynopsisEmbed(film, data)] });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Could not fetch synopsis';
+          await interaction.editReply({ content: msg });
         }
         return;
       }
