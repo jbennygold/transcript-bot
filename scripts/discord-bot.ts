@@ -314,8 +314,9 @@ async function fetchKev(film: string): Promise<KevResponse> {
   return fetchJson<KevResponse>(`${baseUrl}/api/kev?film=${encodeURIComponent(film)}`);
 }
 
-async function fetchStats(film: string): Promise<StatsResponse> {
-  return fetchJson<StatsResponse>(`${baseUrl}/api/stats?film=${encodeURIComponent(film)}`);
+async function fetchStats(film?: string, episode?: number): Promise<StatsResponse> {
+  const query = episode ? `episode=${episode}` : `film=${encodeURIComponent(film!)}`;
+  return fetchJson<StatsResponse>(`${baseUrl}/api/stats?${query}`);
 }
 
 function buildGuestEmbed(data: GuestResponse) {
@@ -618,10 +619,15 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       }
 
       if (interaction.commandName === 'pdc-stats') {
-        const film = interaction.options.getString('movie', true).trim();
+        const film = interaction.options.getString('movie')?.trim() ?? '';
+        const epNum = interaction.options.getInteger('episode');
+        if (!film && !epNum) {
+          await interaction.reply({ content: 'Please provide a movie title or episode number.', flags: 64 });
+          return;
+        }
         await interaction.deferReply();
         try {
-          const data = await fetchStats(film);
+          const data = epNum ? await fetchStats(undefined, epNum) : await fetchStats(film);
           await interaction.editReply({ embeds: [buildStatsEmbed(data)] });
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Could not fetch stats';

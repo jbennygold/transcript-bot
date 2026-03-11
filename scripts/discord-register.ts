@@ -57,9 +57,12 @@ const kevCommand = new SlashCommandBuilder()
 
 const statsCommand = new SlashCommandBuilder()
   .setName('pdc-stats')
-  .setDescription('Get episode stats for a film')
+  .setDescription('Get episode stats for a film or episode number')
   .addStringOption((option) =>
-    option.setName('movie').setDescription('Film title').setRequired(true)
+    option.setName('movie').setDescription('Film title').setRequired(false)
+  )
+  .addIntegerOption((option) =>
+    option.setName('episode').setDescription('Episode number').setRequired(false)
   );
 
 const commands = [
