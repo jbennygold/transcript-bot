@@ -199,7 +199,14 @@ function buildClippyUrl(path: string): string | null {
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status}`);
+    let message: string;
+    try {
+      const body = (await response.json()) as { error?: string };
+      message = body.error ?? `Request failed (${response.status})`;
+    } catch {
+      message = `Request failed (${response.status})`;
+    }
+    throw new Error(message);
   }
   return response.json() as Promise<T>;
 }
