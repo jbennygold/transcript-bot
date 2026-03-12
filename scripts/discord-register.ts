@@ -55,6 +55,13 @@ const kevCommand = new SlashCommandBuilder()
     option.setName('movie').setDescription('Film title').setRequired(true)
   );
 
+const crewCommand = new SlashCommandBuilder()
+  .setName('pdc-crew')
+  .setDescription('Find all episodes featuring a director, cinematographer, or actor')
+  .addStringOption((option) =>
+    option.setName('name').setDescription('Crew member name').setRequired(true)
+  );
+
 const statsCommand = new SlashCommandBuilder()
   .setName('pdc-stats')
   .setDescription('Get episode stats for a film or episode number')
@@ -70,6 +77,7 @@ const commands = [
   guestCommand.toJSON(),
   kevCommand.toJSON(),
   statsCommand.toJSON(),
+  crewCommand.toJSON(),
 ];
 
 const rest = new REST({ version: '10' }).setToken(token);

@@ -121,6 +121,20 @@ type KevResponse = {
   source: 'metadata' | 'generated';
 };
 
+type CrewMatch = {
+  film: string;
+  episodeNumber: number | string;
+  pod: string;
+  season: number;
+  releaseDate: string;
+  roles: string[];
+};
+
+type CrewResponse = {
+  name: string;
+  matches: CrewMatch[];
+};
+
 type StatsResponse = {
   film: string;
   episodeNumber: number | string | null;
@@ -319,6 +333,10 @@ async function fetchStats(film?: string, episode?: number): Promise<StatsRespons
   return fetchJson<StatsResponse>(`${baseUrl}/api/stats?${query}`);
 }
 
+async function fetchCrew(name: string): Promise<CrewResponse> {
+  return fetchJson<CrewResponse>(`${baseUrl}/api/crew?name=${encodeURIComponent(name)}`);
+}
+
 function buildGuestEmbed(data: GuestResponse) {
   const lines = data.episodes.map((e) => {
     return `**#${e.episodeNumber}** — ${e.film}`;
@@ -368,6 +386,25 @@ function buildStatsEmbed(data: StatsResponse) {
   if (data.showLink) embed.addFields({ name: 'Listen', value: data.showLink });
 
   return embed;
+}
+
+function buildCrewEmbed(data: CrewResponse) {
+  const MAX_LINES = 20;
+  const lines = data.matches.map((m) => {
+    const role = m.roles.join('/');
+    return `**#${m.episodeNumber}** — ${m.film} *(${role})*`;
+  });
+
+  let description = lines.slice(0, MAX_LINES).join('\n');
+  if (lines.length > MAX_LINES) {
+    description += `\n_...and ${lines.length - MAX_LINES} more_`;
+  }
+
+  return new EmbedBuilder()
+    .setTitle(`Episodes featuring ${data.name}`)
+    .setDescription(description)
+    .setColor(0x5865f2)
+    .setFooter({ text: `${data.matches.length} episode${data.matches.length !== 1 ? 's' : ''}` });
 }
 
 function buildSynopsisEmbed(film: string, data: SynopsisResponse) {
@@ -631,6 +668,19 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           await interaction.editReply({ embeds: [buildStatsEmbed(data)] });
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Could not fetch stats';
+          await interaction.editReply({ content: msg });
+        }
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-crew') {
+        const name = interaction.options.getString('name', true).trim();
+        await interaction.deferReply();
+        try {
+          const data = await fetchCrew(name);
+          await interaction.editReply({ embeds: [buildCrewEmbed(data)] });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Could not fetch crew';
           await interaction.editReply({ content: msg });
         }
         return;
