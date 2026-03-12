@@ -619,15 +619,15 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       }
 
       if (interaction.commandName === 'pdc-stats') {
-        const film = interaction.options.getString('movie')?.trim() ?? '';
-        const epNum = interaction.options.getInteger('episode');
-        if (!film && !epNum) {
-          await interaction.reply({ content: 'Please provide a movie title or episode number.', flags: 64 });
-          return;
-        }
+        const query = interaction.options.getString('query', true).trim();
         await interaction.deferReply();
         try {
-          const data = epNum ? await fetchStats(undefined, epNum) : await fetchStats(film);
+          const asEpisode = /^\d+$/.test(query) ? parseInt(query, 10) : null;
+          let data: StatsResponse | null = null;
+          if (asEpisode) {
+            try { data = await fetchStats(undefined, asEpisode); } catch { /* fall through */ }
+          }
+          if (!data) data = await fetchStats(query);
           await interaction.editReply({ embeds: [buildStatsEmbed(data)] });
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Could not fetch stats';

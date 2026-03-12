@@ -59,10 +59,7 @@ const statsCommand = new SlashCommandBuilder()
   .setName('pdc-stats')
   .setDescription('Get episode stats for a film or episode number')
   .addStringOption((option) =>
-    option.setName('movie').setDescription('Film title').setRequired(false)
-  )
-  .addIntegerOption((option) =>
-    option.setName('episode').setDescription('Episode number').setRequired(false)
+    option.setName('query').setDescription('Film title or episode number').setRequired(true)
   );
 
 const commands = [
