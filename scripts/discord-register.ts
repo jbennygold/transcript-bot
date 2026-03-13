@@ -69,6 +69,13 @@ const statsCommand = new SlashCommandBuilder()
     option.setName('query').setDescription('Film title or episode number').setRequired(true)
   );
 
+const playlistCommand = new SlashCommandBuilder()
+  .setName('pdc-playlist')
+  .setDescription('Find music mentioned in an episode + official soundtrack')
+  .addStringOption((option) =>
+    option.setName('movie').setDescription('Film title').setRequired(true)
+  );
+
 const commands = [
   command.toJSON(),
   quoteCommand.toJSON(),
@@ -78,6 +85,7 @@ const commands = [
   kevCommand.toJSON(),
   statsCommand.toJSON(),
   crewCommand.toJSON(),
+  playlistCommand.toJSON(),
 ];
 
 const rest = new REST({ version: '10' }).setToken(token);

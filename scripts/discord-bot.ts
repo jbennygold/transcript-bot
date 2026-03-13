@@ -169,6 +169,33 @@ type SynopsisResponse = {
   source: 'transcript' | 'generated';
 };
 
+type PlaylistSongMention = {
+  song: string;
+  artist: string;
+  context: string;
+  quote: string;
+  timestamp: string;
+};
+
+type PlaylistSpotifyTrack = {
+  name: string;
+  artist: string;
+  trackUrl: string;
+  durationMs: number;
+};
+
+type PlaylistResponse = {
+  film: string;
+  episodeNumber: number | null;
+  mentionedSongs: PlaylistSongMention[];
+  soundtrack: {
+    albumUrl: string;
+    albumName: string;
+    albumArt: string | null;
+    topTracks: PlaylistSpotifyTrack[];
+  } | null;
+};
+
 type CachedResult = {
   shareId: string;
   shareUrl: string;
@@ -335,6 +362,63 @@ async function fetchStats(film?: string, episode?: number): Promise<StatsRespons
 
 async function fetchCrew(name: string): Promise<CrewResponse> {
   return fetchJson<CrewResponse>(`${baseUrl}/api/crew?name=${encodeURIComponent(name)}`);
+}
+
+async function fetchPlaylist(film: string): Promise<PlaylistResponse> {
+  return fetchJson<PlaylistResponse>(`${baseUrl}/api/playlist?film=${encodeURIComponent(film)}`);
+}
+
+function buildPlaylistEmbed(film: string, data: PlaylistResponse) {
+  const embed = new EmbedBuilder()
+    .setTitle(`Playlist: ${data.film}`)
+    .setColor(0x1DB954); // Spotify green
+
+  // Field 1: Songs mentioned in the episode
+  if (data.mentionedSongs.length > 0) {
+    const MAX_SONGS = 10;
+    const lines = data.mentionedSongs.slice(0, MAX_SONGS).map(
+      s => `• **${s.song}** — ${s.artist} (${s.timestamp})\n  _${s.context}_`
+    );
+    let value = lines.join('\n');
+    if (data.mentionedSongs.length > MAX_SONGS) {
+      value += `\n_...and ${data.mentionedSongs.length - MAX_SONGS} more_`;
+    }
+    // Discord field value limit is 1024 chars
+    if (value.length > 1024) {
+      value = value.substring(0, 1020) + '...';
+    }
+    const fieldName = data.episodeNumber
+      ? `Mentioned in Episode #${data.episodeNumber}`
+      : 'Mentioned in Episode';
+    embed.addFields({ name: fieldName, value });
+  }
+
+  // Field 2: Official Spotify soundtrack
+  if (data.soundtrack) {
+    const MAX_TRACKS = 10;
+    const trackLines = data.soundtrack.topTracks.slice(0, MAX_TRACKS).map(
+      t => `• [${t.name}](${t.trackUrl}) — ${t.artist}`
+    );
+    let value = trackLines.join('\n');
+    value += `\n\n[Full Album on Spotify](${data.soundtrack.albumUrl})`;
+    if (value.length > 1024) {
+      // Truncate track list but keep album link
+      const albumLink = `\n\n[Full Album on Spotify](${data.soundtrack.albumUrl})`;
+      const maxTrackLen = 1024 - albumLink.length - 4;
+      value = trackLines.join('\n').substring(0, maxTrackLen) + '...' + albumLink;
+    }
+    embed.addFields({ name: 'Official Soundtrack', value });
+
+    if (data.soundtrack.albumArt) {
+      embed.setThumbnail(data.soundtrack.albumArt);
+    }
+  }
+
+  if (data.mentionedSongs.length === 0 && !data.soundtrack) {
+    embed.setDescription(`No music references found for "${film}".`);
+  }
+
+  return embed;
 }
 
 function buildGuestEmbed(data: GuestResponse) {
@@ -681,6 +765,19 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           await interaction.editReply({ embeds: [buildCrewEmbed(data)] });
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Could not fetch crew';
+          await interaction.editReply({ content: msg });
+        }
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-playlist') {
+        const film = interaction.options.getString('movie', true).trim();
+        await interaction.deferReply();
+        try {
+          const data = await fetchPlaylist(film);
+          await interaction.editReply({ embeds: [buildPlaylistEmbed(film, data)] });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'No music references found for that film';
           await interaction.editReply({ content: msg });
         }
         return;
