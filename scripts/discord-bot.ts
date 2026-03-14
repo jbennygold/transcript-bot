@@ -373,39 +373,50 @@ function buildPlaylistEmbed(film: string, data: PlaylistResponse) {
     .setTitle(`Playlist: ${data.film}`)
     .setColor(0x1DB954); // Spotify green
 
-  // Field 1: Songs mentioned in the episode
+  // Mentioned songs — split across multiple fields if needed (each field max 1024 chars)
   if (data.mentionedSongs.length > 0) {
-    const MAX_SONGS = 10;
-    const lines = data.mentionedSongs.slice(0, MAX_SONGS).map(
-      s => `• **${s.song}** — ${s.artist} (${s.timestamp})\n  _${s.context}_`
-    );
-    let value = lines.join('\n');
-    if (data.mentionedSongs.length > MAX_SONGS) {
-      value += `\n_...and ${data.mentionedSongs.length - MAX_SONGS} more_`;
-    }
-    // Discord field value limit is 1024 chars
-    if (value.length > 1024) {
-      value = value.substring(0, 1020) + '...';
-    }
-    const fieldName = data.episodeNumber
+    const fieldBaseName = data.episodeNumber
       ? `Mentioned in Episode #${data.episodeNumber}`
       : 'Mentioned in Episode';
-    embed.addFields({ name: fieldName, value });
+
+    const songLines = data.mentionedSongs.map(
+      s => `• **${s.song}** — ${s.artist} (${s.timestamp})\n  _${s.context}_`
+    );
+
+    // Pack lines into fields, respecting 1024-char limit per field
+    const fields: { name: string; value: string }[] = [];
+    let current = '';
+    for (const line of songLines) {
+      const next = current ? current + '\n' + line : line;
+      if (next.length > 1024) {
+        if (current) fields.push({ name: fields.length === 0 ? fieldBaseName : '\u200b', value: current });
+        current = line.length > 1024 ? line.substring(0, 1020) + '...' : line;
+      } else {
+        current = next;
+      }
+    }
+    if (current) fields.push({ name: fields.length === 0 ? fieldBaseName : '\u200b', value: current });
+
+    embed.addFields(...fields);
   }
 
-  // Field 2: Official Spotify soundtrack
+  // Official Spotify soundtrack — compact if mentions took a lot of space
   if (data.soundtrack) {
-    const MAX_TRACKS = 10;
-    const trackLines = data.soundtrack.topTracks.slice(0, MAX_TRACKS).map(
+    const albumLink = `[Full Album on Spotify](${data.soundtrack.albumUrl})`;
+    // Decide how many tracks to show based on how many mention fields we used
+    const mentionFieldCount = data.mentionedSongs.length > 0 ? Math.ceil(data.mentionedSongs.length / 5) : 0;
+    const maxTracks = mentionFieldCount > 2 ? 5 : 10;
+
+    const trackLines = data.soundtrack.topTracks.slice(0, maxTracks).map(
       t => `• [${t.name}](${t.trackUrl}) — ${t.artist}`
     );
-    let value = trackLines.join('\n');
-    value += `\n\n[Full Album on Spotify](${data.soundtrack.albumUrl})`;
+    let value = trackLines.join('\n') + `\n\n${albumLink}`;
     if (value.length > 1024) {
-      // Truncate track list but keep album link
-      const albumLink = `\n\n[Full Album on Spotify](${data.soundtrack.albumUrl})`;
-      const maxTrackLen = 1024 - albumLink.length - 4;
-      value = trackLines.join('\n').substring(0, maxTrackLen) + '...' + albumLink;
+      // Keep removing tracks until it fits, always keeping album link
+      while (trackLines.length > 1 && (trackLines.join('\n') + `\n\n${albumLink}`).length > 1020) {
+        trackLines.pop();
+      }
+      value = trackLines.join('\n') + `\n\n${albumLink}`;
     }
     embed.addFields({ name: 'Official Soundtrack', value });
 
