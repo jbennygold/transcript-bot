@@ -51,7 +51,7 @@ ${truncatedAnswer}
 
   try {
     const message = await client.messages.create({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-haiku-4-5',
       max_tokens: 256,
       messages: [{ role: 'user', content: prompt }],
     });
