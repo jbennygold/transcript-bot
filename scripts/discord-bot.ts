@@ -840,7 +840,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             });
           } else {
             await interaction.editReply({
-              content: `❌ GitHub rejected the trigger (HTTP ${result.status}). Check the token and try again.`,
+              content: `❌ GitHub rejected the trigger (HTTP ${result.status}). Check the token/workflow config and try again.`,
             });
           }
         } catch (error) {
