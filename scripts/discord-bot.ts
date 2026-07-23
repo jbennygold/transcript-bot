@@ -13,6 +13,7 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import { summarizeShareAnswer } from '../src/share-summary.js';
+import { triggerNewEpisodesWorkflow } from '../src/github-dispatch.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -24,6 +25,10 @@ const rawBaseUrl = process.env.DISCORD_SEARCH_BASE_URL
 const baseUrl = rawBaseUrl.replace(/\/+$/, '');
 const clippyBlobBaseUrl = process.env.CLIPPY_BLOB_BASE_URL || process.env.BLOB_BASE_URL || '';
 const clippyWebUrl = (process.env.CLIPPY_WEB_URL || 'https://clippy-web-nine.vercel.app').replace(/\/+$/, '');
+const githubDispatchToken = process.env.GITHUB_DISPATCH_TOKEN || '';
+const episodeTriggerRole = process.env.EPISODE_TRIGGER_ROLE || 'hosts';
+const episodesRunUrl =
+  'https://github.com/jbennygold/transcript-app/actions/workflows/new-episodes.yml';
 
 if (!token) {
   console.error('Missing DISCORD_BOT_TOKEN in env.');
@@ -790,6 +795,59 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'No music references found for that film';
           await interaction.editReply({ content: msg });
+        }
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-check-episodes') {
+        // Role gate. inCachedGuild() narrows interaction.member to a GuildMember
+        // whose roles.cache is populated (guilds are cached under the Guilds intent).
+        if (!interaction.inCachedGuild()) {
+          await interaction.reply({
+            content: 'This command can only be used inside a server.',
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const hasRole = interaction.member.roles.cache.some(
+          (r) => r.name.toLowerCase() === episodeTriggerRole.toLowerCase(),
+        );
+        if (!hasRole) {
+          await interaction.reply({
+            content: `You need the **${episodeTriggerRole}** role to run this.`,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        if (!githubDispatchToken) {
+          await interaction.reply({
+            content: 'Episode trigger isn’t configured (missing GITHUB_DISPATCH_TOKEN).',
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        await interaction.deferReply();
+        try {
+          const result = await triggerNewEpisodesWorkflow(githubDispatchToken);
+          if (result.ok) {
+            await interaction.editReply({
+              content:
+                `✅ Started a new-episodes check. Follow it here: ${episodesRunUrl}\n` +
+                'Results will be posted to #pod-data-central when transcription finishes.',
+            });
+          } else {
+            await interaction.editReply({
+              content: `❌ GitHub rejected the trigger (HTTP ${result.status}). Check the token and try again.`,
+            });
+          }
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Unknown error';
+          await interaction.editReply({
+            content: `❌ Failed to trigger the workflow: ${msg}`,
+          });
         }
         return;
       }
