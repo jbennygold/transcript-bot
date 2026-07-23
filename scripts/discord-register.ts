@@ -76,6 +76,10 @@ const playlistCommand = new SlashCommandBuilder()
     option.setName('movie').setDescription('Film title').setRequired(true)
   );
 
+const checkEpisodesCommand = new SlashCommandBuilder()
+  .setName('pdc-check-episodes')
+  .setDescription('Check the podcast feed for new episodes and start transcription');
+
 const commands = [
   command.toJSON(),
   quoteCommand.toJSON(),
@@ -86,6 +90,7 @@ const commands = [
   statsCommand.toJSON(),
   crewCommand.toJSON(),
   playlistCommand.toJSON(),
+  checkEpisodesCommand.toJSON(),
 ];
 
 const rest = new REST({ version: '10' }).setToken(token);
