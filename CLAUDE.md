@@ -32,6 +32,8 @@ npm run register   # Register /pdc slash command
 - `ANTHROPIC_API_KEY` — Claude API for synopsis
 - `DISCORD_FEEDBACK_SHEET_ID` / `DISCORD_FEEDBACK_SHEET_TAB` — Google Sheets feedback
 - `GOOGLE_SERVICE_ACCOUNT_JSON` — service account credentials
+- `GITHUB_DISPATCH_TOKEN` — fine-grained GitHub PAT (scope: `jbennygold/transcript-app`, **Actions: Read and write**) used to trigger the `new-episodes.yml` workflow from `/pdc-check-episodes`
+- `EPISODE_TRIGGER_ROLE` — Discord role name allowed to run `/pdc-check-episodes` (defaults to `hosts`)
 
 ## Conventions
 
