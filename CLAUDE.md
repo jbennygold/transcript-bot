@@ -21,7 +21,7 @@ Discord bot for Escape Hatch Podcast Search. Provides `/pdc` slash command for s
 
 ```bash
 npm run bot        # Start the bot
-npm run register   # Register /pdc slash command
+npm run register   # Register slash commands (/pdc, /pdc-note, etc.)
 ```
 
 ## Environment Variables
@@ -34,6 +34,7 @@ npm run register   # Register /pdc slash command
 - `GOOGLE_SERVICE_ACCOUNT_JSON` — service account credentials
 - `GITHUB_DISPATCH_TOKEN` — fine-grained GitHub PAT (scope: `jbennygold/transcript-app`, **Actions: Read and write**) used to trigger the `new-episodes.yml` workflow from `/pdc-check-episodes`
 - `EPISODE_TRIGGER_ROLE` — Discord role name allowed to run `/pdc-check-episodes` (defaults to `hosts`)
+- `EH_BOT_KEY` — external API key (from the app's `EH_EXTERNAL_KEYS`) used by `/pdc-note` to submit Notable Moment nominations
 
 ## Conventions
 

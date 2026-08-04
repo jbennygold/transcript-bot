@@ -80,6 +80,22 @@ const checkEpisodesCommand = new SlashCommandBuilder()
   .setName('pdc-check-episodes')
   .setDescription('Check the podcast feed for new episodes and start transcription');
 
+const noteCommand = new SlashCommandBuilder()
+  .setName('pdc-note')
+  .setDescription('Nominate a Notable Moment for the current episode')
+  .addStringOption((option) =>
+    option
+      .setName('note')
+      .setDescription('The moment, in one line')
+      .setRequired(true)
+  )
+  .addStringOption((option) =>
+    option
+      .setName('ep')
+      .setDescription('Episode number (defaults to the episode currently open for notes)')
+      .setRequired(false)
+  );
+
 const commands = [
   command.toJSON(),
   quoteCommand.toJSON(),
@@ -91,6 +107,7 @@ const commands = [
   crewCommand.toJSON(),
   playlistCommand.toJSON(),
   checkEpisodesCommand.toJSON(),
+  noteCommand.toJSON(),
 ];
 
 const rest = new REST({ version: '10' }).setToken(token);

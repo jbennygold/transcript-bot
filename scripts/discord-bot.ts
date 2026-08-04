@@ -373,6 +373,28 @@ async function fetchPlaylist(film: string): Promise<PlaylistResponse> {
   return fetchJson<PlaylistResponse>(`${baseUrl}/api/playlist?film=${encodeURIComponent(film)}`);
 }
 
+interface NoteResponse {
+  ok?: boolean;
+  id?: string;
+  episode?: string;
+  error?: string;
+}
+
+async function submitNote(note: string, ep: string | null, submittedBy: string): Promise<NoteResponse> {
+  const key = process.env.EH_BOT_KEY;
+  if (!key) return { error: 'EH_BOT_KEY is not configured on the bot.' };
+
+  const res = await fetch(`${baseUrl}/api/episode-notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-eh-key': key },
+    body: JSON.stringify({ note, submittedBy, ...(ep ? { episode: ep } : {}) }),
+  });
+
+  const data = (await res.json().catch(() => ({}))) as NoteResponse;
+  if (!res.ok) return { error: data.error ?? `Request failed (${res.status})` };
+  return data;
+}
+
 function buildPlaylistEmbed(film: string, data: PlaylistResponse) {
   const embed = new EmbedBuilder()
     .setTitle(`Playlist: ${data.film}`)
@@ -849,6 +871,22 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             content: `❌ Failed to trigger the workflow: ${msg}`,
           });
         }
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-note') {
+        const note = interaction.options.getString('note', true);
+        const ep = interaction.options.getString('ep');
+        await interaction.deferReply({ ephemeral: true });
+
+        const result = await submitNote(note, ep, interaction.user.tag);
+        if (result.error) {
+          await interaction.editReply(`Could not save that note: ${result.error}`);
+          return;
+        }
+        await interaction.editReply(
+          `Noted for episode ${result.episode}. It goes to an admin for review before it reaches the sheet.`
+        );
         return;
       }
     }
