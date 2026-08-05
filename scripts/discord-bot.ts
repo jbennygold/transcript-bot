@@ -1088,7 +1088,8 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           const result = await syncNotes(episode, comments);
           if (result.error || !result.summary) {
             await interaction.editReply(
-              `Sync failed: ${result.error ?? 'the app returned no summary'}. Nothing was appended — run it again to retry.`,
+              `Sync didn't complete: ${result.error ?? 'the app returned no summary'}. ` +
+              `It's safe to run this again — comments already synced are skipped, not duplicated.`,
             );
             return;
           }

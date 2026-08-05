@@ -66,6 +66,11 @@ test('episodeFromThreadName reads the episode out of the thread title', () => {
   assert.equal(episodeFromThreadName('Episode 317'), '317');
 });
 
+test('episodeFromThreadName reads bonus-episode ids with an alpha suffix', () => {
+  assert.equal(episodeFromThreadName('Ep 147b1 · Some Film'), '147b1');
+  assert.equal(episodeFromThreadName('Episode 49b2'), '49b2');
+});
+
 test('episodeFromThreadName returns null when there is no episode to read', () => {
   assert.equal(episodeFromThreadName('General chat'), null);
   assert.equal(episodeFromThreadName(''), null);

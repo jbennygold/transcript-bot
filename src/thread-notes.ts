@@ -68,12 +68,18 @@ export function selectApprovedComments(
 }
 
 /**
- * Read the episode number out of a thread name written by threadNameFor()
+ * Read the episode id out of a thread name written by threadNameFor()
  * in the app repo — "Ep 317 · Film" or "Episode 317". Returns null rather than
  * guessing: writing a note to the wrong sheet row is worse than asking for ep:.
+ *
+ * The capture group allows a trailing alpha suffix (e.g. "147b1") because
+ * bonus episodes have non-numeric ids that share a numeric prefix with their
+ * base episode ("147" vs "147b1") and have their own sheet row. Matching only
+ * the numeric prefix silently resolves a bonus-episode thread to the wrong
+ * (base) episode's row.
  */
 export function episodeFromThreadName(name: string): string | null {
-  const m = /^Ep(?:isode)?\s+(\d+)/i.exec(String(name ?? '').trim());
+  const m = /^Ep(?:isode)?\s+([0-9]+[A-Za-z0-9]*)/i.exec(String(name ?? '').trim());
   return m ? m[1] : null;
 }
 
