@@ -5,8 +5,9 @@ import {
   episodeFromThreadName,
   selectApprovedComments,
   formatSyncReply,
+  type SyncResultEntry,
   type ThreadMessage,
-} from './thread-notes.ts';
+} from './thread-notes.js';
 
 function msg(over: Partial<ThreadMessage> = {}): ThreadMessage {
   return {
@@ -92,6 +93,40 @@ test('formatSyncReply flags failures rather than reading as a clean success', ()
     failed: 1,
   }, false);
   assert.match(reply, /fail/i);
+});
+
+test('formatSyncReply without results falls back to the generic retry line', () => {
+  const reply = formatSyncReply('317', {
+    considered: 2,
+    appended: 1,
+    duplicate: 0,
+    alreadySynced: 0,
+    failed: 1,
+  }, false);
+  assert.match(reply, /run the command again to retry/i);
+});
+
+test('formatSyncReply with results breaks failures out by reason', () => {
+  const results: SyncResultEntry[] = [
+    { discordMessageId: 'a', outcome: 'appended' },
+    { discordMessageId: 'b', outcome: 'append_failed' },
+    { discordMessageId: 'c', outcome: 'invalid_note' },
+    { discordMessageId: 'd', outcome: 'invalid_note' },
+    { discordMessageId: 'e', outcome: 'no_sheet_row' },
+  ];
+  const reply = formatSyncReply('317', {
+    considered: 5,
+    appended: 1,
+    duplicate: 0,
+    alreadySynced: 0,
+    failed: 4,
+  }, false, results);
+
+  assert.match(reply, /1 failed to append — run the command again to retry/i);
+  assert.match(reply, /2 outside the 5-1000 character limit/i);
+  assert.match(reply, /1 the episode has no row in the sheet yet/i);
+  // Only append_failed should invite a retry.
+  assert.doesNotMatch(reply, /2 outside[\s\S]*retry/i);
 });
 
 test('formatSyncReply says so when the thread was archived', () => {

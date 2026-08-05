@@ -22,6 +22,7 @@ import {
   formatSyncReply,
   type SyncComment,
   type SyncSummary,
+  type SyncResultEntry,
   type ThreadMessage,
 } from '../src/thread-notes.js';
 
@@ -413,8 +414,12 @@ interface OpenEpisodeResponse {
 interface SyncResponse {
   ok?: boolean;
   summary?: SyncSummary;
+  results?: SyncResultEntry[];
   error?: string;
 }
+
+/** The app rejects (400) the entire batch at 51+ comments — it never truncates. */
+const MAX_SYNC_COMMENTS = 50;
 
 async function fetchOpenEpisode(): Promise<OpenEpisodeResponse> {
   const key = process.env.EH_BOT_KEY;
@@ -964,9 +969,19 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
         try {
           // Which thread: the one this command was run in, else the open one.
-          let thread: ThreadChannel | null = interaction.channel?.isThread()
-            ? (interaction.channel as ThreadChannel)
-            : null;
+          // interaction.channel is a cache read — archived threads are evicted
+          // from the cache (no Partials configured here), so a cache check
+          // silently misses them and falls through to the wrong thread. Fetch
+          // via REST instead so archived threads still resolve correctly.
+          let thread: ThreadChannel | null = null;
+          try {
+            const invocationChannel = await interaction.client.channels.fetch(interaction.channelId);
+            if (invocationChannel?.isThread()) {
+              thread = invocationChannel as ThreadChannel;
+            }
+          } catch (error) {
+            console.warn('Failed to fetch invocation channel:', error);
+          }
           let openEpisode: string | null = null;
           let openThreadId: string | null = null;
 
@@ -1022,7 +1037,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
               // gateway subscription.
               const users = await reaction.users.fetch();
               for (const u of users.values()) {
-                const member = await thread.guild.members.fetch(u.id).catch(() => null);
+                const member = await thread.guild.members.fetch(u.id).catch((error) => {
+                  console.warn(`Failed to fetch guild member ${u.id} for sync approval check:`, error);
+                  return null;
+                });
                 if (
                   member?.roles.cache.some(
                     (r) => r.name.toLowerCase() === episodeTriggerRole.toLowerCase(),
@@ -1058,6 +1076,15 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             return;
           }
 
+          if (comments.length > MAX_SYNC_COMMENTS) {
+            await interaction.editReply(
+              `${comments.length} reacted comments — the sync limit is ${MAX_SYNC_COMMENTS}. ` +
+              `Remove some reactions and run this again; ` +
+              `already-synced comments are skipped, so nothing duplicates.`
+            );
+            return;
+          }
+
           const result = await syncNotes(episode, comments);
           if (result.error || !result.summary) {
             await interaction.editReply(
@@ -1066,7 +1093,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             return;
           }
 
-          await interaction.editReply(formatSyncReply(episode, result.summary, archived));
+          await interaction.editReply(formatSyncReply(episode, result.summary, archived, result.results));
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Unknown error';
           await interaction.editReply(`Sync failed: ${msg}`);

@@ -33,6 +33,19 @@ export interface SyncSummary {
 }
 
 /**
+ * One row of the app's per-comment sync outcome. `outcome` is a superset of
+ * the three failure reasons the app rolls up into SyncSummary.failed:
+ * `append_failed` (transient, worth retrying), `invalid_note` (text outside
+ * the 5-1000 char range — will never succeed on retry), and `no_sheet_row`
+ * (the episode has no row in the sheet yet). Other outcomes (appended,
+ * duplicate, already_synced) are ignored here; only failures are broken out.
+ */
+export interface SyncResultEntry {
+  discordMessageId: string;
+  outcome: string;
+}
+
+/**
  * Keep only human comments an admin reacted to.
  *
  * `starterMessageId` is the thread's own id — in Discord a thread and its
@@ -67,7 +80,8 @@ export function episodeFromThreadName(name: string): string | null {
 export function formatSyncReply(
   episode: string,
   summary: SyncSummary,
-  archived: boolean
+  archived: boolean,
+  results?: SyncResultEntry[]
 ): string {
   const lines = [
     `**Episode ${episode}** — considered ${summary.considered} reacted comment${summary.considered === 1 ? '' : 's'}.`,
@@ -76,7 +90,25 @@ export function formatSyncReply(
     `• Already synced earlier: ${summary.alreadySynced}`,
   ];
   if (summary.failed > 0) {
-    lines.push(`• ⚠️ Failed: ${summary.failed} — these stay unsynced; run the command again to retry.`);
+    lines.push(`• ⚠️ Failed: ${summary.failed}`);
+    if (results && results.length > 0) {
+      const appendFailed = results.filter((r) => r.outcome === 'append_failed').length;
+      const invalidNote = results.filter((r) => r.outcome === 'invalid_note').length;
+      const noSheetRow = results.filter((r) => r.outcome === 'no_sheet_row').length;
+      if (appendFailed > 0) {
+        lines.push(`  – ${appendFailed} failed to append — run the command again to retry.`);
+      }
+      if (invalidNote > 0) {
+        lines.push(
+          `  – ${invalidNote} outside the 5-1000 character limit — won't sync until the comment is edited.`
+        );
+      }
+      if (noSheetRow > 0) {
+        lines.push(`  – ${noSheetRow} the episode has no row in the sheet yet.`);
+      }
+    } else {
+      lines.push('  – these stay unsynced; run the command again to retry.');
+    }
   }
   if (archived) {
     lines.push('_This thread is archived. Any new reaction needs the thread unarchived first._');
