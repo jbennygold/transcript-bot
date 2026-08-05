@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "bot": "node --import tsx ./scripts/discord-bot.ts",
-    "register": "node --import tsx ./scripts/discord-register.ts"
+    "register": "node --import tsx ./scripts/discord-register.ts",
+    "test": "node --import tsx --test src/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
