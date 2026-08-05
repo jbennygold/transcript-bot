@@ -11,9 +11,19 @@ import {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  ThreadChannel,
 } from 'discord.js';
 import { summarizeShareAnswer } from '../src/share-summary.js';
 import { triggerNewEpisodesWorkflow } from '../src/github-dispatch.js';
+import {
+  APPROVAL_EMOJI,
+  episodeFromThreadName,
+  selectApprovedComments,
+  formatSyncReply,
+  type SyncComment,
+  type SyncSummary,
+  type ThreadMessage,
+} from '../src/thread-notes.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -395,6 +405,43 @@ async function submitNote(note: string, ep: string | null, submittedBy: string):
   return data;
 }
 
+interface OpenEpisodeResponse {
+  open?: { episode: string; film: string; threadId: string | null } | null;
+  error?: string;
+}
+
+interface SyncResponse {
+  ok?: boolean;
+  summary?: SyncSummary;
+  error?: string;
+}
+
+async function fetchOpenEpisode(): Promise<OpenEpisodeResponse> {
+  const key = process.env.EH_BOT_KEY;
+  if (!key) return { error: 'EH_BOT_KEY is not configured on the bot.' };
+
+  const res = await fetch(`${baseUrl}/api/episode-notes/open`, {
+    headers: { 'x-eh-key': key },
+  });
+  const data = (await res.json().catch(() => ({}))) as OpenEpisodeResponse;
+  if (!res.ok) return { error: data.error ?? `Request failed (${res.status})` };
+  return data;
+}
+
+async function syncNotes(episode: string, comments: SyncComment[]): Promise<SyncResponse> {
+  const key = process.env.EH_BOT_KEY;
+  if (!key) return { error: 'EH_BOT_KEY is not configured on the bot.' };
+
+  const res = await fetch(`${baseUrl}/api/episode-notes/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-eh-key': key },
+    body: JSON.stringify({ episode, comments }),
+  });
+  const data = (await res.json().catch(() => ({}))) as SyncResponse;
+  if (!res.ok) return { error: data.error ?? `Request failed (${res.status})` };
+  return data;
+}
+
 function buildPlaylistEmbed(film: string, data: PlaylistResponse) {
   const embed = new EmbedBuilder()
     .setTitle(`Playlist: ${data.film}`)
@@ -680,7 +727,7 @@ function getCached(shareId: string): CachedResult | null {
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.MessageContent],
 });
 
 client.once('clientReady', () => {
@@ -887,6 +934,143 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         await interaction.editReply(
           `Noted for episode ${result.episode}. It goes to an admin for review before it reaches the sheet.`
         );
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-sync-notes') {
+        if (!interaction.inCachedGuild()) {
+          await interaction.reply({
+            content: 'This command can only be used inside a server.',
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        // Same role gate as /pdc-check-episodes. A reaction is the approval,
+        // so whoever runs the sync must be able to approve too.
+        const hasRole = interaction.member.roles.cache.some(
+          (r) => r.name.toLowerCase() === episodeTriggerRole.toLowerCase(),
+        );
+        if (!hasRole) {
+          await interaction.reply({
+            content: `You need the **${episodeTriggerRole}** role to run this.`,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const epOption = interaction.options.getString('ep');
+        await interaction.deferReply();
+
+        try {
+          // Which thread: the one this command was run in, else the open one.
+          let thread: ThreadChannel | null = interaction.channel?.isThread()
+            ? (interaction.channel as ThreadChannel)
+            : null;
+          let openEpisode: string | null = null;
+          let openThreadId: string | null = null;
+
+          const open = await fetchOpenEpisode();
+          if (open.error) {
+            await interaction.editReply(`Could not read the open episode: ${open.error}`);
+            return;
+          }
+          openEpisode = open.open?.episode ?? null;
+          openThreadId = open.open?.threadId ?? null;
+
+          if (!thread) {
+            if (!openThreadId) {
+              await interaction.editReply(
+                'No thread to sync. Run this inside an episode thread, or open an episode first.'
+              );
+              return;
+            }
+            const fetched = await interaction.client.channels.fetch(openThreadId);
+            if (!fetched || !fetched.isThread()) {
+              await interaction.editReply(
+                `Could not open thread ${openThreadId}. Run this command inside the thread instead.`
+              );
+              return;
+            }
+            thread = fetched as ThreadChannel;
+          }
+
+          // Which episode: ep: wins, then the pointer if this IS the open
+          // thread, then the thread name. Never guess — a wrong episode writes
+          // to the wrong sheet row.
+          const episode =
+            epOption?.trim() ||
+            (thread.id === openThreadId ? openEpisode : null) ||
+            episodeFromThreadName(thread.name);
+          if (!episode) {
+            await interaction.editReply(
+              'Could not work out which episode this thread is for. Re-run with `ep:` set.'
+            );
+            return;
+          }
+
+          const archived = thread.archived === true;
+          const fetchedMessages = await thread.messages.fetch({ limit: 100 });
+
+          const flattened: ThreadMessage[] = [];
+          for (const m of fetchedMessages.values()) {
+            let approvedByAdmin = false;
+            for (const emoji of APPROVAL_EMOJI) {
+              const reaction = m.reactions.cache.find((r) => r.emoji.name === emoji);
+              if (!reaction) continue;
+              // Reaction users are not cached; this is a REST call, not a
+              // gateway subscription.
+              const users = await reaction.users.fetch();
+              for (const u of users.values()) {
+                const member = await thread.guild.members.fetch(u.id).catch(() => null);
+                if (
+                  member?.roles.cache.some(
+                    (r) => r.name.toLowerCase() === episodeTriggerRole.toLowerCase(),
+                  )
+                ) {
+                  approvedByAdmin = true;
+                  break;
+                }
+              }
+              if (approvedByAdmin) break;
+            }
+            flattened.push({
+              id: m.id,
+              authorTag: m.author.tag,
+              authorIsBot: m.author.bot,
+              content: m.content,
+              approvedByAdmin,
+            });
+          }
+
+          // fetch() returns newest-first; read the thread in the order it was written.
+          flattened.reverse();
+
+          const comments = selectApprovedComments(flattened, thread.id);
+          if (comments.length === 0) {
+            await interaction.editReply(
+              formatSyncReply(
+                episode,
+                { considered: 0, appended: 0, duplicate: 0, alreadySynced: 0, failed: 0 },
+                archived,
+              ),
+            );
+            return;
+          }
+
+          const result = await syncNotes(episode, comments);
+          if (result.error || !result.summary) {
+            await interaction.editReply(
+              `Sync failed: ${result.error ?? 'the app returned no summary'}. Nothing was appended — run it again to retry.`,
+            );
+            return;
+          }
+
+          await interaction.editReply(formatSyncReply(episode, result.summary, archived));
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Unknown error';
+          await interaction.editReply(`Sync failed: ${msg}`);
+        }
         return;
       }
     }

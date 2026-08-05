@@ -96,6 +96,16 @@ const noteCommand = new SlashCommandBuilder()
       .setRequired(false)
   );
 
+const syncNotesCommand = new SlashCommandBuilder()
+  .setName('pdc-sync-notes')
+  .setDescription('Append this thread\'s ✅-reacted comments to Notable Moments')
+  .addStringOption((option) =>
+    option
+      .setName('ep')
+      .setDescription('Episode number (defaults to the thread\'s episode)')
+      .setRequired(false)
+  );
+
 const commands = [
   command.toJSON(),
   quoteCommand.toJSON(),
@@ -108,6 +118,7 @@ const commands = [
   playlistCommand.toJSON(),
   checkEpisodesCommand.toJSON(),
   noteCommand.toJSON(),
+  syncNotesCommand.toJSON(),
 ];
 
 const rest = new REST({ version: '10' }).setToken(token);
