@@ -110,7 +110,10 @@ const triviaCommand = new SlashCommandBuilder()
   .setName('pdc-trivia')
   .setDescription('Get a trivia fact about a film (from the pod when we covered it)')
   .addStringOption((option) =>
-    option.setName('movie').setDescription('Film title').setRequired(true)
+    option
+      .setName('movie')
+      .setDescription('Film title (leave blank for a random episode)')
+      .setRequired(false)
   );
 
 const commands = [

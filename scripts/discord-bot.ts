@@ -396,8 +396,9 @@ async function fetchPlaylist(film: string): Promise<PlaylistResponse> {
   return fetchJson<PlaylistResponse>(`${baseUrl}/api/playlist?film=${encodeURIComponent(film)}`);
 }
 
-async function fetchTrivia(film: string): Promise<TriviaResponse> {
-  return fetchJson<TriviaResponse>(`${baseUrl}/api/trivia?film=${encodeURIComponent(film)}`);
+async function fetchTrivia(film: string | null): Promise<TriviaResponse> {
+  const query = film ? `?film=${encodeURIComponent(film)}` : '';
+  return fetchJson<TriviaResponse>(`${baseUrl}/api/trivia${query}`);
 }
 
 interface NoteResponse {
@@ -918,11 +919,11 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       }
 
       if (interaction.commandName === 'pdc-trivia') {
-        const film = interaction.options.getString('movie', true).trim();
+        const film = interaction.options.getString('movie')?.trim() || null;
         await interaction.deferReply();
         try {
           const data = await fetchTrivia(film);
-          await interaction.editReply({ embeds: [buildTriviaEmbed(film, data)] });
+          await interaction.editReply({ embeds: [buildTriviaEmbed(film ?? data.film, data)] });
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Could not fetch trivia';
           await interaction.editReply({ content: msg });
