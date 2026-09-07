@@ -185,6 +185,18 @@ type SynopsisResponse = {
   source: 'transcript' | 'generated';
 };
 
+type TriviaResponse = {
+  film: string;
+  episodeNumber: number | null;
+  episodeName: string | null;
+  pod: string | null;
+  speaker: string | null;
+  timestamp: string | null;
+  quote: string | null;
+  fact: string;
+  source: 'transcript' | 'generated';
+};
+
 type PlaylistSongMention = {
   song: string;
   artist: string;
@@ -382,6 +394,10 @@ async function fetchCrew(name: string): Promise<CrewResponse> {
 
 async function fetchPlaylist(film: string): Promise<PlaylistResponse> {
   return fetchJson<PlaylistResponse>(`${baseUrl}/api/playlist?film=${encodeURIComponent(film)}`);
+}
+
+async function fetchTrivia(film: string): Promise<TriviaResponse> {
+  return fetchJson<TriviaResponse>(`${baseUrl}/api/trivia?film=${encodeURIComponent(film)}`);
 }
 
 interface NoteResponse {
@@ -598,6 +614,34 @@ function buildSynopsisEmbed(film: string, data: SynopsisResponse) {
       name: 'Episode',
       value: `Escape Hatch #${data.episodeNumber} — ${epTitle}${timestamp}`,
     });
+  }
+
+  return embed;
+}
+
+function buildTriviaEmbed(film: string, data: TriviaResponse) {
+  const isReal = data.source === 'transcript';
+  const embed = new EmbedBuilder()
+    .setTitle(`Trivia: ${data.film || film}`)
+    .setDescription(trimText(data.fact, 4000))
+    .setColor(isReal ? 0x5865f2 : 0x57f287)
+    .setFooter({
+      text: isReal
+        ? 'From the pod — Escape Hatch Pod trivia'
+        : 'General film trivia (AI generated, not from the pod)',
+    });
+
+  if (isReal && data.episodeNumber !== null) {
+    const epTitle = data.episodeName ?? data.film;
+    const who = data.speaker ? `${data.speaker}` : 'the pod';
+    const at = data.timestamp ? ` at ${data.timestamp}` : '';
+    embed.addFields({
+      name: 'Heard on',
+      value: `Escape Hatch #${data.episodeNumber} — ${epTitle} (${who}${at})`,
+    });
+    if (data.quote) {
+      embed.addFields({ name: 'They said', value: `> ${trimText(data.quote, 1000)}` });
+    }
   }
 
   return embed;
@@ -868,6 +912,19 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           await interaction.editReply({ embeds: [buildPlaylistEmbed(film, data)] });
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'No music references found for that film';
+          await interaction.editReply({ content: msg });
+        }
+        return;
+      }
+
+      if (interaction.commandName === 'pdc-trivia') {
+        const film = interaction.options.getString('movie', true).trim();
+        await interaction.deferReply();
+        try {
+          const data = await fetchTrivia(film);
+          await interaction.editReply({ embeds: [buildTriviaEmbed(film, data)] });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Could not fetch trivia';
           await interaction.editReply({ content: msg });
         }
         return;

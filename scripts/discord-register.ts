@@ -106,6 +106,13 @@ const syncNotesCommand = new SlashCommandBuilder()
       .setRequired(false)
   );
 
+const triviaCommand = new SlashCommandBuilder()
+  .setName('pdc-trivia')
+  .setDescription('Get a trivia fact about a film (from the pod when we covered it)')
+  .addStringOption((option) =>
+    option.setName('movie').setDescription('Film title').setRequired(true)
+  );
+
 const commands = [
   command.toJSON(),
   quoteCommand.toJSON(),
@@ -116,6 +123,7 @@ const commands = [
   statsCommand.toJSON(),
   crewCommand.toJSON(),
   playlistCommand.toJSON(),
+  triviaCommand.toJSON(),
   checkEpisodesCommand.toJSON(),
   noteCommand.toJSON(),
   syncNotesCommand.toJSON(),
